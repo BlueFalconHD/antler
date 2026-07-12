@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 export async function loadCodeServerPassword(filePath?: string): Promise<string> {
   const environmentValue = process.env.ANTLER_CODE_SERVER_PASSWORD;
@@ -62,28 +63,66 @@ async function promptSecret(label: string): Promise<string> {
   process.stdin.resume();
   return new Promise<string>((resolve, reject) => {
     let value = "";
+    const decoder = new StringDecoder("utf8");
     const cleanup = () => {
       process.stdin.off("data", onData);
+      process.stdin.off("error", onError);
       process.stdin.setRawMode(false);
       process.stdin.pause();
       process.stderr.write("\n");
     };
     const onData = (chunk: Buffer) => {
-      for (const byte of chunk) {
-        if (byte === 3) {
-          cleanup();
-          reject(new Error("Password prompt cancelled"));
-          return;
-        }
-        if (byte === 13 || byte === 10) {
-          cleanup();
-          resolve(value);
-          return;
-        }
-        if (byte === 127 || byte === 8) value = value.slice(0, -1);
-        else value += String.fromCharCode(byte);
+      const update = applyMaskedSecretInput(value, decoder.write(chunk));
+      value = update.value;
+      process.stderr.write(update.maskedOutput);
+      if (update.cancelled) {
+        cleanup();
+        reject(new Error("Password prompt cancelled"));
+      } else if (update.complete) {
+        cleanup();
+        resolve(value);
       }
     };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
     process.stdin.on("data", onData);
+    process.stdin.once("error", onError);
   });
+}
+
+export function applyMaskedSecretInput(
+  currentValue: string,
+  input: string,
+): { readonly value: string; readonly maskedOutput: string; readonly complete: boolean; readonly cancelled: boolean } {
+  let value = currentValue;
+  let maskedOutput = "";
+  for (const character of input) {
+    if (character === "\u0003" || character === "\u0004") {
+      return { value, maskedOutput, complete: false, cancelled: true };
+    }
+    if (character === "\r" || character === "\n") {
+      return { value, maskedOutput, complete: true, cancelled: false };
+    }
+    if (character === "\u007f" || character === "\b") {
+      const characters = [...value];
+      if (characters.length > 0) {
+        characters.pop();
+        value = characters.join("");
+        maskedOutput += "\b \b";
+      }
+      continue;
+    }
+    if (character === "\u0015") {
+      maskedOutput += "\b \b".repeat([...value].length);
+      value = "";
+      continue;
+    }
+    if (character >= " ") {
+      value += character;
+      maskedOutput += "*";
+    }
+  }
+  return { value, maskedOutput, complete: false, cancelled: false };
 }
