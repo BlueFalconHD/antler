@@ -26,7 +26,7 @@ Focused modules implement each boundary:
 | handshake and management-channel context | `src/vscode/handshake.ts` |
 | allowed `remoteFilesystem` RPC surface | `src/vscode/remoteFileSystem.ts` |
 | lexical and symlink confinement | `src/confinement/pathConfinement.ts` |
-| SFTP request handling and status mapping | `src/sftp/` |
+| SFTP request handling, changed ranges, and status mapping | `src/sftp/` |
 | compatibility values | `src/compatibility/profiles.ts` |
 
 ## Source authority
@@ -104,6 +104,33 @@ therefore use a protected local staged file:
 
 This also supplies backpressure, partial-write handling, and prevents a failed
 upload from exposing partially rewritten target content.
+
+`ChangeRanges` merges every SFTP WRITE and size-changing truncate range. An
+unchanged preserved handle closes without a remote upload. A compatibility
+profile may declare an evidence-backed `writePreservingOpenOptions` value. In
+that case, same-size edits take an atomic partial-patch path:
+
+1. use the provider's `copy` command to create a server-side temporary copy;
+2. verify that the declared preserving open did not truncate that copy;
+3. write only the merged changed ranges with backpressure;
+4. re-run confinement/type checks and rename over the destination.
+
+No verified profile currently declares that option. Live probing of the custom
+target showed that `create:false` remains read-only even with `write`,
+`writable`, or `truncate:false`, while every tested `create:true` form
+truncates to zero. Consequently, changed files on both verified 1.85.2 targets
+use the safe full-replacement path; only unchanged handles avoid transfer.
+
+## Custom captured frame
+
+The supplied browser capture decodes as one 13-byte persistent frame with type
+`2`, message id `0`, acknowledgement `0`, and a 317-byte JSON payload. Its
+payload is a `connectionType` message for commit
+`ebeb3c82ac91ac3e453356093435047ed911a179` and
+`desiredConnectionType:2` (ExtensionHost). This independently confirms the
+framing and custom product commit. The bridge intentionally sends connection
+type `1` (Management), which is the channel that registers
+`remoteFilesystem`; copying the browser's ExtensionHost value would be wrong.
 
 ## Connection loss
 

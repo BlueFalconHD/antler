@@ -64,6 +64,16 @@ remote path, such as `/private/tmp/...`, or a normal project directory.
   remote process can still change the file and cause the close-time type/race
   checks to fail.
 
+## Partial edit performs a full remote replacement
+
+Run `npm run test:integration:write-probe` with the three documented
+integration environment variables. `EBADF` for `create:false` and a size of
+zero after `create:true` means the provider has the stock VS Code 1.85.2
+limitation: it exposes no writable, non-truncating descriptor. The bridge still
+accepts offset SFTP writes, but safely commits the changed file through a full
+temporary replacement. Do not force-enable the profile capability; a false
+declaration either fails closed or could corrupt a temporary patch copy.
+
 ## SFTP client reports unsupported
 
 The bridge supports conventional create mode 0644/0666 and directory mode

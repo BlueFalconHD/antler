@@ -50,6 +50,10 @@ out-of-root metadata read.
 - Only the VS Code management connection and `remoteFilesystem` calls are
   implemented. Tunnel, extension-host, terminal, command, and extension APIs
   are not exposed.
+- Capability-enabled partial patches copy only to an unpredictable temporary
+  name in the already-confined destination directory, verify that write-open
+  preserved its size, patch merged ranges, re-check confinement, and atomically
+  rename. Profiles without live evidence cannot enable this path.
 
 ## Local staged data
 

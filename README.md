@@ -15,6 +15,8 @@ The public baseline is code-server 4.20.1 at
 - directory open, paged listing, and close
 - concurrent file handles and offset reads
 - create, upload, offset write, append, truncate, and close
+- merged changed-range tracking, unchanged-handle elision, and atomic partial
+  patching when a compatibility profile exposes non-truncating write-open
 - mkdir, remove, rmdir, and non-overwriting rename
 - deterministic SFTP v3 status mapping and explicit unsupported responses
 - future-operation reconnect after transport loss; existing handles are invalidated
@@ -78,9 +80,26 @@ sftp -P 2222 moose@127.0.0.1
 The configured remote root appears as `/`. The URL may include a reverse-proxy
 path prefix; retain the trailing root path in `--code-server-url` as shown.
 
-Select the custom target with `--profile custom-v69`. Its expected product
-commit is configured, but it remains unverified until credentials and network
-access to that deployment are supplied.
+Select the custom target with `--profile custom-v69`. The live 69.0.0 target at
+product commit `ebeb3c82ac91ac3e453356093435047ed911a179` has been verified with
+the required SFTP operations. If the supplied browser URL ends in
+`/login?folder=...`, pass only its deployment root through the slash before
+`login`; `--remote-root` receives the decoded `folder` path separately.
+
+## Partial edits
+
+SFTP offset writes are always accepted without requiring the client to upload
+the whole file. The bridge merges the changed byte ranges. A profile with a
+verified non-truncating remote write-open uses a server-side copy, sends only
+those ranges, then atomically renames the copy. Opening an existing file for
+write and closing it unchanged sends no file data.
+
+VS Code 1.85.2's stock `remoteFilesystem` provider—and the verified custom
+69.0.0 target—cannot open an existing file writable without truncating it. On
+those profiles, an actual content change therefore falls back to a streamed
+full temporary replacement. This is a protocol limitation, not a client-side
+choice; the bridge never risks an in-place partial overwrite or reports a
+partial commit that did not occur.
 
 ## Safety-related options
 
@@ -131,6 +150,17 @@ With a bridge running, the offset-write/truncate smoke test is:
 ```sh
 MOOSE_PROXY_INTEGRATION_PASSWORD_FILE="$HOME/.config/moose-proxy/sftp-password" \
   MOOSE_PROXY_INTEGRATION_PORT=2222 npm run test:integration:sftp
+```
+
+Protocol development can test a disposable file for a custom preserving-write
+extension. This command prints the result for each candidate and always removes
+its probe files:
+
+```sh
+MOOSE_PROXY_INTEGRATION_CODE_SERVER_URL=https://code.example.test/prefix/ \
+MOOSE_PROXY_INTEGRATION_CODE_SERVER_PASSWORD_FILE="$HOME/.config/moose-proxy/code-server-password" \
+MOOSE_PROXY_INTEGRATION_REMOTE_ROOT=/home/me/project \
+  npm run test:integration:write-probe
 ```
 
 The exact public-baseline and OpenSSH validation performed for this repository

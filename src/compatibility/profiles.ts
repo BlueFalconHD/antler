@@ -26,7 +26,7 @@ export const compatibilityProfiles = {
     quality: "stable",
     vscodeVersion: "1.85.2",
     vscodeCommit: "8b3775030ed1a69b13e4f4c628c612102e30a681",
-    verified: false,
+    verified: true,
   },
 } as const satisfies Record<string, CompatibilityProfile>;
 

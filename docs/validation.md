@@ -9,7 +9,7 @@ release under Rosetta on an arm64 Mac.
 ```text
 npm run typecheck  passed
 npm run lint       passed
-npm test           24 tests passed
+npm test           29 tests passed
 npm run build      passed
 npm audit          0 vulnerabilities
 ```
@@ -17,7 +17,10 @@ npm audit          0 vulnerabilities
 The unit suite covers framing split/coalescing, serialization tags and large
 offsets, lexical traversal, separator ambiguity, symlink components, final-only
 create gaps, error mapping, concurrent handle identity/cleanup, connection
-generation invalidation, partial/offset staged writes, truncate, and abort.
+generation invalidation, partial/offset staged writes, truncate, and abort. It
+also covers changed-range merging, atomic copy-and-patch selection for a
+capability-enabled profile, and zero-transfer close for an unchanged preserved
+handle.
 
 ## Public code-server integration
 
@@ -44,6 +47,30 @@ A live symlink inside the remote root pointing to an outside file was visible
 as a link in the listing, but STAT/open/download was rejected with SFTP
 PERMISSION_DENIED and no local output file was created.
 
+## Custom code-server 69.0.0 integration
+
+The provided prefixed deployment was inspected and tested live. Its branded
+login page retained the public login contract. Authenticated `/version`
+returned:
+
+```text
+ebeb3c82ac91ac3e453356093435047ed911a179
+```
+
+The bridge completed the custom stable-route WebSocket upgrade, Management
+handshake, IPC initialization, and `remoteFilesystem` setup for
+`/home/coder/project/datapack`. The disposable SFTP suite passed create,
+upload, unchanged `r+` close, staged read-after-write, offset write, truncate,
+download verification, rename, delete, and rmdir. Debug diagnostics confirmed
+that the unchanged handle transferred zero bytes and that a two-byte edit was
+identified as a two-byte changed range.
+
+The preserving-write probe tried `create:false` with `write`, `writable`, and
+`truncate:false`; all writes failed with `EBADF` while leaving the original ten
+bytes intact. Both tested `create:true` variants truncated to zero at open.
+This proves that partial remote patching cannot be activated safely for this
+build. Changed files use the atomic full-replacement fallback.
+
 ## OpenSSH end to end
 
 The stock `sftp` client successfully performed:
@@ -55,15 +82,17 @@ The stock `sftp` client successfully performed:
 - rename to `/alpha/renamed.txt` and second download;
 - file delete and directory delete.
 
-Both downloads were byte-for-byte equal to the upload, and direct inspection
-confirmed the remote root was empty after cleanup.
+The sequence passed against both the public baseline and the custom target.
+All downloads were byte-for-byte equal to the uploads, and disposable remote
+files/directories were removed after each run.
 
 ## Not run
-
-The custom code-server 69.0.0 target was not tested because no reachable target
-URL, password, or remote root was provided. This is the only external-access
-blocker; the custom profile and fail-fast `/version` check are present.
 
 The VS Code extension was not installed into a GUI session. The documented
 Natizyskunk SFTP configuration omits plaintext credentials and uses only the
 SFTP v3 operations covered by the OpenSSH and ssh2 integration runs.
+
+The custom server's unpublished source was not available, so compatibility is
+claimed from exact runtime identity, captured framing, and live behavior—not
+from a custom-source audit. The public v4.20.1 tag and its pinned VS Code commit
+remain authoritative for every protocol implementation decision.
