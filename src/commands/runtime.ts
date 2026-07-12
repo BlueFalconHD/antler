@@ -1,9 +1,9 @@
-import path from "node:path";
 import { authenticateCodeServer, type CodeServerSession } from "../auth/codeServerAuth.js";
 import { LEGITIMOOSE_COMPATIBILITY } from "../compatibility/legitimoose.js";
 import { GitCheckpoints, type GitStatus } from "../git/checkpoints.js";
 import { Logger } from "../logging.js";
 import { loadProjectConfig, type ProjectConfig } from "../projectConfig.js";
+import { assertSafeProjectPaths, resolveProjectPaths, type ProjectPaths } from "../projectPaths.js";
 import { RemoteAgentManager } from "../remoteAgentManager.js";
 import { loadCodeServerPassword } from "../secrets.js";
 import { TransferProgressReporter } from "../transferProgress.js";
@@ -11,13 +11,13 @@ import { IgnoreRules } from "../sync/ignoreRules.js";
 import { LocalTree } from "../sync/localTree.js";
 import { ObjectStore } from "../sync/objectStore.js";
 import { RemoteTree } from "../sync/remoteTree.js";
-import { STATE_DIRECTORY_NAME } from "../sync/paths.js";
 import { StateStore } from "../sync/stateStore.js";
 import { SyncEngine } from "../sync/syncEngine.js";
 import type { SyncEvent } from "../sync/types.js";
 
 export interface ProjectRuntime {
   readonly config: ProjectConfig;
+  readonly paths: ProjectPaths;
   readonly session: CodeServerSession;
   readonly manager: RemoteAgentManager;
   readonly state: StateStore;
@@ -30,29 +30,30 @@ export interface ProjectRuntime {
 }
 
 export async function openProjectRuntime(
-  localRoot: string,
+  projectRoot: string,
   logger: Logger,
   options: { readonly passwordFile?: string } = {},
 ): Promise<ProjectRuntime> {
-  const config = await loadProjectConfig(localRoot);
-  const stateDirectory = path.join(localRoot, STATE_DIRECTORY_NAME);
-  const state = new StateStore(stateDirectory);
+  const config = await loadProjectConfig(projectRoot);
+  const paths = resolveProjectPaths(projectRoot, config);
+  const state = new StateStore(paths.stateDirectory);
   const loadedState = await state.load();
   if (loadedState.projectId !== config.projectId) {
     throw new Error("Project configuration and sync state identities do not match. No files were changed");
   }
   const password = await loadCodeServerPassword(options.passwordFile ?? config.remote.passwordFile);
-  return openConfiguredRuntime(localRoot, config, state, password, logger);
+  return openConfiguredRuntime(projectRoot, config, state, password, logger);
 }
 
 export async function openConfiguredRuntime(
-  localRoot: string,
+  projectRoot: string,
   config: ProjectConfig,
   state: StateStore,
   password: string,
   logger: Logger,
 ): Promise<ProjectRuntime> {
-  const stateDirectory = path.join(localRoot, STATE_DIRECTORY_NAME);
+  const paths = resolveProjectPaths(projectRoot, config);
+  await assertSafeProjectPaths(paths);
   logger.info("Connecting to code-server", { origin: new URL(config.remote.url).origin });
   const session = await authenticateCodeServer({
     baseUrl: new URL(config.remote.url),
@@ -76,8 +77,8 @@ export async function openConfiguredRuntime(
     sendOrigin: config.remote.sendOrigin,
   });
   try {
-    const ignore = await IgnoreRules.load(localRoot, config.sync.ignores);
-    const local = new LocalTree({ root: localRoot, shouldIgnore: (entry, directory) => ignore.ignores(entry, directory) });
+    const ignore = await IgnoreRules.load(paths.syncRoot, config.sync.ignores);
+    const local = new LocalTree({ root: paths.syncRoot, shouldIgnore: (entry, directory) => ignore.ignores(entry, directory) });
     const remote = new RemoteTree({
       manager,
       root: config.remote.root,
@@ -86,14 +87,14 @@ export async function openConfiguredRuntime(
     });
     await Promise.all([local.initialize(), remote.initialize()]);
     logger.success("Remote root confined", { remoteRoot: config.remote.root });
-    const git = new GitCheckpoints(localRoot, stateDirectory, config.git.enabled && config.git.checkpoints);
+    const git = new GitCheckpoints(paths.syncRoot, paths.stateDirectory, config.git.enabled && config.git.checkpoints);
     const gitStatus = await git.initialize();
     if (gitStatus.available) {
       logger.success("Git safety checkpoints enabled", { branch: gitStatus.branch, dirty: gitStatus.dirty });
     } else {
       logger.warn("Git safety checkpoints unavailable", { reason: gitStatus.reason });
     }
-    const objects = new ObjectStore(stateDirectory);
+    const objects = new ObjectStore(paths.stateDirectory);
     const progressReporter = new TransferProgressReporter(logger);
     const engine = new SyncEngine({
       local,
@@ -109,6 +110,7 @@ export async function openConfiguredRuntime(
     });
     return {
       config,
+      paths,
       session,
       manager,
       state,

@@ -7,7 +7,7 @@ import { openProjectRuntime } from "./runtime.js";
 type WriteOutput = (value: string) => void;
 
 export async function startProjectShell(
-  localRoot: string,
+  projectRoot: string,
   passwordFile: string | undefined,
   logger: Logger,
   color: boolean,
@@ -15,7 +15,7 @@ export async function startProjectShell(
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("antler sh requires an interactive terminal. Use individual commands in scripts");
   }
-  const runtime = await openProjectRuntime(localRoot, logger, { ...(passwordFile ? { passwordFile } : {}) });
+  const runtime = await openProjectRuntime(projectRoot, logger, { ...(passwordFile ? { passwordFile } : {}) });
   try {
     logger.success("Authenticated shell ready", {
       remoteRoot: runtime.config.remote.root,
@@ -32,7 +32,7 @@ export async function startProjectShell(
       let exit = false;
       try {
         const command = parseShellCommand(line);
-        exit = await executeShellCommand(command, runtime, localRoot, logger, (value) => process.stdout.write(value));
+        exit = await executeShellCommand(command, runtime, projectRoot, logger, (value) => process.stdout.write(value));
       } catch (error) {
         logger.error("Command failed", { error });
       }
@@ -51,7 +51,7 @@ export async function startProjectShell(
 export async function executeShellCommand(
   command: ShellCommand,
   runtime: ProjectRuntime,
-  localRoot: string,
+  projectRoot: string,
   logger: Logger,
   write: WriteOutput,
 ): Promise<boolean> {
@@ -65,10 +65,13 @@ export async function executeShellCommand(
       write("\u001b[2J\u001b[H");
       return false;
     case "pwd":
-      write(`Local   ${localRoot}\nRemote  ${runtime.config.remote.root}\n`);
+      write(
+        `${runtime.paths.projectRoot === runtime.paths.syncRoot ? "" : `Project ${runtime.paths.projectRoot}\n`}` +
+        `Local   ${runtime.paths.syncRoot}\nRemote  ${runtime.config.remote.root}\n`,
+      );
       return false;
     case "status":
-      await showStatus(runtime, localRoot, write);
+      await showStatus(runtime, projectRoot, write);
       return false;
     case "conflicts":
       showConflicts(runtime, write);
@@ -104,14 +107,15 @@ export async function executeShellCommand(
   }
 }
 
-async function showStatus(runtime: ProjectRuntime, localRoot: string, write: WriteOutput): Promise<void> {
+async function showStatus(runtime: ProjectRuntime, _projectRoot: string, write: WriteOutput): Promise<void> {
   const state = runtime.state.current();
   const git = runtime.gitStatus.available ? await runtime.git.status() : runtime.gitStatus;
   const conflicts = Object.keys(state.conflicts).length;
   const deletions = Object.keys(state.pendingDeletes).length;
   const recovery = Object.keys(state.journal).length;
   write([
-    `Local       ${localRoot}`,
+    ...(runtime.paths.projectRoot === runtime.paths.syncRoot ? [] : [`Project     ${runtime.paths.projectRoot}`]),
+    `Local       ${runtime.paths.syncRoot}`,
     `Remote      ${runtime.config.remote.root}`,
     `Tracked     ${Object.keys(state.entries).length} entries`,
     `Conflicts   ${conflicts}`,

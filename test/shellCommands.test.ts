@@ -80,6 +80,11 @@ describe("interactive shell dispatch", () => {
     });
     const runtime = {
       config: { remote: { root: "/srv/project" } },
+      paths: {
+        projectRoot: "/tmp/project",
+        stateDirectory: "/tmp/project/.antler",
+        syncRoot: "/tmp/project",
+      },
       engine: { reconcile },
     } as unknown as ProjectRuntime;
     const logger = new Logger("error", { format: "plain", color: false });

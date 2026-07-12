@@ -8,6 +8,7 @@ import {
   parseConnectionUrl,
   saveProjectConfig,
 } from "../projectConfig.js";
+import { assertSafeProjectPaths, configuredSyncRoot, resolveProjectPaths } from "../projectPaths.js";
 import { loadCodeServerPassword, promptText } from "../secrets.js";
 import { LEGACY_STATE_DIRECTORY_NAME, STATE_DIRECTORY_NAME } from "../sync/paths.js";
 import { StateStore } from "../sync/stateStore.js";
@@ -21,27 +22,28 @@ export interface InitOptions {
   readonly omitOrigin?: boolean;
   readonly allowVersionMismatch?: boolean;
   readonly git?: boolean;
+  readonly syncRoot?: string;
 }
 
 export async function initializeProject(directory: string, options: InitOptions, logger: Logger): Promise<void> {
-  const localRoot = path.resolve(directory);
-  await fs.mkdir(localRoot, { recursive: true });
-  const rootStat = await fs.lstat(localRoot);
+  const projectRoot = path.resolve(directory);
+  await fs.mkdir(projectRoot, { recursive: true });
+  const rootStat = await fs.lstat(projectRoot);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
     throw new Error("Local project must be a non-symlink directory");
   }
   for (const stateName of [STATE_DIRECTORY_NAME, LEGACY_STATE_DIRECTORY_NAME]) {
     try {
-      await fs.lstat(path.join(localRoot, stateName));
-      throw new Error(`${localRoot} already contains Antler state; run antler status`);
+      await fs.lstat(path.join(projectRoot, stateName));
+      throw new Error(`${projectRoot} already contains Antler state; run antler status`);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
 
-  const rawUrl = options.url ?? await promptText("Paste the full browser workspace URL");
+  const rawUrl = options.url ?? process.env.ANTLER_CODE_SERVER_URL ?? await promptText("Paste the full browser workspace URL");
   const parsed = parseConnectionUrl(rawUrl);
-  const remoteRoot = options.remoteRoot ?? parsed.remoteRoot ?? await promptText("Remote project root");
+  const remoteRoot = options.remoteRoot ?? parsed.remoteRoot ?? process.env.ANTLER_REMOTE_ROOT ?? await promptText("Remote project root");
   const password = await loadCodeServerPassword(options.passwordFile);
   const rejectUnauthorized = !options.insecureSkipTlsVerify;
   if (!rejectUnauthorized) logger.warn("TLS certificate verification is disabled for this project");
@@ -70,14 +72,17 @@ export async function initializeProject(directory: string, options: InitOptions,
     sendOrigin: !options.omitOrigin,
     allowVersionMismatch: options.allowVersionMismatch ?? false,
     gitEnabled: options.git ?? true,
+    syncRoot: configuredSyncRoot(projectRoot, options.syncRoot),
   });
-  const stateDirectory = path.join(localRoot, STATE_DIRECTORY_NAME);
-  const state = new StateStore(stateDirectory);
+  const paths = resolveProjectPaths(projectRoot, config);
+  await fs.mkdir(paths.syncRoot, { recursive: true });
+  await assertSafeProjectPaths(paths);
+  const state = new StateStore(paths.stateDirectory);
   await state.initialize(config.projectId);
-  await saveProjectConfig(localRoot, config);
-  logger.success("Created safe project state", { stateDirectory });
+  await saveProjectConfig(projectRoot, config);
+  logger.success("Created safe project state", { stateDirectory: paths.stateDirectory, syncRoot: paths.syncRoot });
 
-  const runtime = await openConfiguredRuntime(localRoot, config, state, password, logger);
+  const runtime = await openConfiguredRuntime(projectRoot, config, state, password, logger);
   try {
     const result = await runtime.engine.reconcile();
     logger.success("Initial synchronization complete", {
@@ -90,7 +95,7 @@ export async function initializeProject(directory: string, options: InitOptions,
         next: "antler conflicts",
       });
     }
-    logger.info("Start live synchronization with: antler start", { localRoot });
+    logger.info("Start live synchronization with: antler start", { projectRoot, syncRoot: paths.syncRoot });
   } finally {
     await runtime.close();
   }

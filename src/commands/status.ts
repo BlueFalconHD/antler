@@ -1,21 +1,21 @@
-import path from "node:path";
 import { GitCheckpoints } from "../git/checkpoints.js";
 import { loadProjectConfig } from "../projectConfig.js";
-import { STATE_DIRECTORY_NAME } from "../sync/paths.js";
+import { resolveProjectPaths } from "../projectPaths.js";
 import { StateStore } from "../sync/stateStore.js";
 
-export async function projectStatus(localRoot: string, json: boolean): Promise<void> {
-  const config = await loadProjectConfig(localRoot);
-  const stateDirectory = path.join(localRoot, STATE_DIRECTORY_NAME);
-  const store = new StateStore(stateDirectory);
+export async function projectStatus(projectRoot: string, json: boolean): Promise<void> {
+  const config = await loadProjectConfig(projectRoot);
+  const paths = resolveProjectPaths(projectRoot, config);
+  const store = new StateStore(paths.stateDirectory);
   const state = await store.load();
   if (state.projectId !== config.projectId) {
     throw new Error("Project configuration and state identities do not match");
   }
-  const git = new GitCheckpoints(localRoot, stateDirectory, config.git.enabled && config.git.checkpoints);
+  const git = new GitCheckpoints(paths.syncRoot, paths.stateDirectory, config.git.enabled && config.git.checkpoints);
   const gitStatus = await git.initialize();
   const summary = {
-    localRoot,
+    projectRoot: paths.projectRoot,
+    localRoot: paths.syncRoot,
     remoteUrl: config.remote.url,
     remoteRoot: config.remote.root,
     trackedEntries: Object.keys(state.entries).length,
@@ -31,7 +31,8 @@ export async function projectStatus(localRoot: string, json: boolean): Promise<v
   }
   process.stdout.write(
     [
-      `Local       ${localRoot}`,
+      ...(paths.projectRoot === paths.syncRoot ? [] : [`Project     ${paths.projectRoot}`]),
+      `Local       ${paths.syncRoot}`,
       `Remote      ${config.remote.root}`,
       `Tracked     ${summary.trackedEntries} entries`,
       `Conflicts   ${summary.conflicts.length}`,
@@ -49,8 +50,9 @@ export async function projectStatus(localRoot: string, json: boolean): Promise<v
   );
 }
 
-export async function listConflicts(localRoot: string, json: boolean): Promise<void> {
-  const store = new StateStore(path.join(localRoot, STATE_DIRECTORY_NAME));
+export async function listConflicts(projectRoot: string, json: boolean): Promise<void> {
+  const config = await loadProjectConfig(projectRoot);
+  const store = new StateStore(resolveProjectPaths(projectRoot, config).stateDirectory);
   const state = await store.load();
   const conflicts = Object.values(state.conflicts).sort((left, right) => left.path.localeCompare(right.path));
   if (json) {
@@ -65,10 +67,10 @@ export async function listConflicts(localRoot: string, json: boolean): Promise<v
   }
 }
 
-export async function listCheckpoints(localRoot: string, json: boolean): Promise<void> {
-  const config = await loadProjectConfig(localRoot);
-  const stateDirectory = path.join(localRoot, STATE_DIRECTORY_NAME);
-  const git = new GitCheckpoints(localRoot, stateDirectory, config.git.enabled && config.git.checkpoints);
+export async function listCheckpoints(projectRoot: string, json: boolean): Promise<void> {
+  const config = await loadProjectConfig(projectRoot);
+  const paths = resolveProjectPaths(projectRoot, config);
+  const git = new GitCheckpoints(paths.syncRoot, paths.stateDirectory, config.git.enabled && config.git.checkpoints);
   const status = await git.initialize();
   if (!status.available) throw new Error(status.reason ?? "Git checkpoints are unavailable");
   const checkpoints = await git.list();
@@ -84,13 +86,13 @@ export async function listCheckpoints(localRoot: string, json: boolean): Promise
 }
 
 export async function restoreCheckpoint(
-  localRoot: string,
+  projectRoot: string,
   reference: string,
   relativePath: string,
 ): Promise<string> {
-  const config = await loadProjectConfig(localRoot);
-  const stateDirectory = path.join(localRoot, STATE_DIRECTORY_NAME);
-  const git = new GitCheckpoints(localRoot, stateDirectory, config.git.enabled && config.git.checkpoints);
+  const config = await loadProjectConfig(projectRoot);
+  const paths = resolveProjectPaths(projectRoot, config);
+  const git = new GitCheckpoints(paths.syncRoot, paths.stateDirectory, config.git.enabled && config.git.checkpoints);
   const status = await git.initialize();
   if (!status.available) throw new Error(status.reason ?? "Git checkpoints are unavailable");
   return git.restore(reference, relativePath);

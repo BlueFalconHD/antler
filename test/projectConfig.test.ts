@@ -37,12 +37,14 @@ describe("Antler project configuration", () => {
     );
   });
 
-  it("creates profile-free schema version 2 configuration", () => {
+  it("creates profile-free schema version 3 configuration", () => {
     const config = createProjectConfig({
       url: new URL("https://code.example.test/deployment/"),
       remoteRoot: "/home/coder/project/datapack",
+      syncRoot: "dist/datapack",
     });
-    expect(config.schemaVersion).toBe(2);
+    expect(config.schemaVersion).toBe(3);
+    expect(config.local.root).toBe("dist/datapack");
     expect(config.remote).not.toHaveProperty("profile");
     expect(config.sync.concurrency).toBe(32);
   });
@@ -60,11 +62,25 @@ describe("Antler project configuration", () => {
     expect((await fs.lstat(path.join(root, ".antler"))).isDirectory()).toBe(true);
 
     const migrated = await loadProjectConfig(root);
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.local.root).toBe(".");
     expect(migrated.remote).not.toHaveProperty("profile");
     const persisted = JSON.parse(await fs.readFile(path.join(root, ".antler", "config.json"), "utf8")) as object;
-    expect(persisted).toMatchObject({ schemaVersion: 2 });
+    expect(persisted).toMatchObject({ schemaVersion: 3, local: { root: "." } });
     expect((persisted as { remote: object }).remote).not.toHaveProperty("profile");
+  });
+
+  it("migrates schema version 2 with the former local-root behavior", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "antler-config-"));
+    roots.push(root);
+    await fs.mkdir(path.join(root, ".antler"));
+    await fs.writeFile(path.join(root, ".antler", "config.json"), JSON.stringify(versionTwoConfig()));
+
+    const migrated = await loadProjectConfig(root);
+
+    expect(migrated).toMatchObject({ schemaVersion: 3, local: { root: "." } });
+    const persisted = JSON.parse(await fs.readFile(path.join(root, ".antler", "config.json"), "utf8")) as object;
+    expect(persisted).toMatchObject({ schemaVersion: 3, local: { root: "." } });
   });
 
   it("refuses to choose when current and legacy state both exist", async () => {
@@ -99,5 +115,24 @@ function legacyConfig(): object {
     },
     safety: { maxDeletes: 20, maxDeletePercent: 10 },
     git: { enabled: true, checkpoints: true },
+  };
+}
+
+function versionTwoConfig(): object {
+  const { remote, sync, safety, git } = legacyConfig() as {
+    remote: Record<string, unknown>;
+    sync: object;
+    safety: object;
+    git: object;
+  };
+  const profileFreeRemote = { ...remote };
+  delete profileFreeRemote.profile;
+  return {
+    schemaVersion: 2,
+    projectId: "version-two-project",
+    remote: profileFreeRemote,
+    sync,
+    safety,
+    git,
   };
 }

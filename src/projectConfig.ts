@@ -1,13 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { normalizeConfiguredSyncRoot } from "./projectPaths.js";
 import { LEGACY_STATE_DIRECTORY_NAME, STATE_DIRECTORY_NAME, validateRemoteRoot } from "./sync/paths.js";
 
 export const DEFAULT_SYNC_CONCURRENCY = 32;
 
 export interface ProjectConfig {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly projectId: string;
+  readonly local: {
+    readonly root: string;
+  };
   readonly remote: {
     readonly url: string;
     readonly root: string;
@@ -72,10 +76,14 @@ export function createProjectConfig(input: {
   readonly sendOrigin?: boolean;
   readonly allowVersionMismatch?: boolean;
   readonly gitEnabled?: boolean;
+  readonly syncRoot?: string;
 }): ProjectConfig {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     projectId: input.projectId ?? randomUUID(),
+    local: {
+      root: normalizeConfiguredSyncRoot(input.syncRoot ?? "."),
+    },
     remote: {
       url: input.url.toString(),
       root: validateRemoteRoot(input.remoteRoot),
@@ -102,12 +110,12 @@ export function createProjectConfig(input: {
   };
 }
 
-export function configPath(localRoot: string): string {
-  return path.join(localRoot, STATE_DIRECTORY_NAME, "config.json");
+export function configPath(projectRoot: string): string {
+  return path.join(projectRoot, STATE_DIRECTORY_NAME, "config.json");
 }
 
-export async function saveProjectConfig(localRoot: string, config: ProjectConfig): Promise<void> {
-  const stateDirectory = path.join(localRoot, STATE_DIRECTORY_NAME);
+export async function saveProjectConfig(projectRoot: string, config: ProjectConfig): Promise<void> {
+  const stateDirectory = path.join(projectRoot, STATE_DIRECTORY_NAME);
   await fs.mkdir(stateDirectory, { recursive: true, mode: 0o700 });
   const stat = await fs.lstat(stateDirectory);
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
@@ -115,11 +123,11 @@ export async function saveProjectConfig(localRoot: string, config: ProjectConfig
   }
   const temporary = path.join(stateDirectory, `.config-${randomUUID()}.tmp`);
   await fs.writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-  await fs.rename(temporary, configPath(localRoot));
+  await fs.rename(temporary, configPath(projectRoot));
 }
 
-export async function loadProjectConfig(localRoot: string): Promise<ProjectConfig> {
-  const file = configPath(localRoot);
+export async function loadProjectConfig(projectRoot: string): Promise<ProjectConfig> {
+  const file = configPath(projectRoot);
   let value: unknown;
   try {
     value = JSON.parse(await fs.readFile(file, "utf8"));
@@ -127,11 +135,11 @@ export async function loadProjectConfig(localRoot: string): Promise<ProjectConfi
     throw new Error(`Unable to read ${file}: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (!isProjectConfig(value)) {
-    if (!isLegacyProjectConfig(value)) {
+    if (!isLegacyProjectConfig(value) && !isVersionTwoProjectConfig(value)) {
       throw new Error(`${file} is malformed or uses an unsupported schema`);
     }
     const migrated = migrateLegacyProjectConfig(value);
-    await saveProjectConfig(localRoot, migrated);
+    await saveProjectConfig(projectRoot, migrated);
     return migrated;
   }
   return value;
@@ -158,9 +166,9 @@ export async function findProjectRoot(start: string): Promise<string> {
   }
 }
 
-async function projectStateAt(localRoot: string): Promise<"current" | "legacy" | undefined> {
-  const currentDirectory = path.join(localRoot, STATE_DIRECTORY_NAME);
-  const legacyDirectory = path.join(localRoot, LEGACY_STATE_DIRECTORY_NAME);
+async function projectStateAt(projectRoot: string): Promise<"current" | "legacy" | undefined> {
+  const currentDirectory = path.join(projectRoot, STATE_DIRECTORY_NAME);
+  const legacyDirectory = path.join(projectRoot, LEGACY_STATE_DIRECTORY_NAME);
   const [current, legacy] = await Promise.all([lstatOptional(currentDirectory), lstatOptional(legacyDirectory)]);
   if (current && legacy) {
     throw new Error(`Both ${currentDirectory} and ${legacyDirectory} exist; refusing to choose or merge state`);
@@ -178,9 +186,9 @@ async function projectStateAt(localRoot: string): Promise<"current" | "legacy" |
   return current ? "current" : "legacy";
 }
 
-async function migrateLegacyStateDirectory(localRoot: string): Promise<void> {
-  const legacyDirectory = path.join(localRoot, LEGACY_STATE_DIRECTORY_NAME);
-  const currentDirectory = path.join(localRoot, STATE_DIRECTORY_NAME);
+async function migrateLegacyStateDirectory(projectRoot: string): Promise<void> {
+  const legacyDirectory = path.join(projectRoot, LEGACY_STATE_DIRECTORY_NAME);
+  const currentDirectory = path.join(projectRoot, STATE_DIRECTORY_NAME);
   await fs.rename(legacyDirectory, currentDirectory);
 }
 
@@ -198,10 +206,24 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isProjectConfig(value: unknown): value is ProjectConfig {
-  if (!hasProjectConfigShape(value) || value.schemaVersion !== 2) {
+  if (!hasProjectConfigShape(value) || value.schemaVersion !== 3) {
     return false;
   }
-  return !("profile" in value.remote);
+  return (
+    !("profile" in value.remote) &&
+    isObject(value.local) &&
+    typeof value.local.root === "string" &&
+    safelyValidateSyncRoot(value.local.root)
+  );
+}
+
+interface VersionTwoProjectConfig {
+  readonly schemaVersion: 2;
+  readonly projectId: string;
+  readonly remote: ProjectConfig["remote"];
+  readonly sync: ProjectConfig["sync"];
+  readonly safety: ProjectConfig["safety"];
+  readonly git: ProjectConfig["git"];
 }
 
 interface LegacyProjectConfig {
@@ -215,6 +237,10 @@ interface LegacyProjectConfig {
 
 function isLegacyProjectConfig(value: unknown): value is LegacyProjectConfig {
   return hasProjectConfigShape(value) && value.schemaVersion === 1 && typeof value.remote.profile === "string";
+}
+
+function isVersionTwoProjectConfig(value: unknown): value is VersionTwoProjectConfig {
+  return hasProjectConfigShape(value) && value.schemaVersion === 2 && !("profile" in value.remote);
 }
 
 function hasProjectConfigShape(value: unknown): value is Record<string, unknown> & {
@@ -253,10 +279,11 @@ function hasProjectConfigShape(value: unknown): value is Record<string, unknown>
   );
 }
 
-function migrateLegacyProjectConfig(legacy: LegacyProjectConfig): ProjectConfig {
+function migrateLegacyProjectConfig(legacy: LegacyProjectConfig | VersionTwoProjectConfig): ProjectConfig {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     projectId: legacy.projectId,
+    local: { root: "." },
     remote: {
       url: legacy.remote.url,
       root: legacy.remote.root,
@@ -269,4 +296,13 @@ function migrateLegacyProjectConfig(legacy: LegacyProjectConfig): ProjectConfig 
     safety: legacy.safety,
     git: legacy.git,
   };
+}
+
+function safelyValidateSyncRoot(value: string): boolean {
+  try {
+    normalizeConfiguredSyncRoot(value);
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -62,6 +62,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .command("init")
     .description("Connect a local datapack directory to Legitimoose safely")
     .argument("[directory]", "local project directory", ".")
+    .option("--sync-root <path>", "project-relative directory synchronized with the remote", ".")
     .option("--url <url>", "full browser workspace URL, including the folder query parameter")
     .option("--remote-root <path>", "remote project directory (inferred from the browser URL)")
     .option("--password-file <path>", "file containing the code-server password")

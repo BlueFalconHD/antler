@@ -2,10 +2,10 @@ import { Logger } from "../logging.js";
 import { SyncDaemon } from "../sync/syncDaemon.js";
 import { openProjectRuntime } from "./runtime.js";
 
-export async function startProject(localRoot: string, passwordFile: string | undefined, logger: Logger): Promise<void> {
-  const runtime = await openProjectRuntime(localRoot, logger, { ...(passwordFile ? { passwordFile } : {}) });
+export async function startProject(projectRoot: string, passwordFile: string | undefined, logger: Logger): Promise<void> {
+  const runtime = await openProjectRuntime(projectRoot, logger, { ...(passwordFile ? { passwordFile } : {}) });
   const daemon = new SyncDaemon({
-    localRoot,
+    localRoot: runtime.paths.syncRoot,
     remoteRoot: runtime.config.remote.root,
     manager: runtime.manager,
     engine: runtime.engine,
@@ -16,7 +16,7 @@ export async function startProject(localRoot: string, passwordFile: string | und
   try {
     await daemon.start();
     logger.success("Live synchronization is running", {
-      local: localRoot,
+      local: runtime.paths.syncRoot,
       remote: runtime.config.remote.root,
     });
     await waitForShutdown();
