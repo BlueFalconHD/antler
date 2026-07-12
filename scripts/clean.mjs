@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, URL } from "node:url";
 
 const destination = fileURLToPath(new URL("../dist", import.meta.url));
 if (path.basename(destination) !== "dist") {
