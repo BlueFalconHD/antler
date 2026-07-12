@@ -3,6 +3,7 @@ import { Command, Option } from "commander";
 import { doctorProject } from "./commands/doctor.js";
 import { initializeProject, type InitOptions } from "./commands/init.js";
 import { resolveConflict } from "./commands/resolve.js";
+import { startProjectShell } from "./commands/shell.js";
 import { startProject } from "./commands/start.js";
 import { listCheckpoints, listConflicts, projectStatus, restoreCheckpoint } from "./commands/status.js";
 import { syncProjectOnce } from "./commands/sync.js";
@@ -67,6 +68,16 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .option("--password-file <path>", "override the configured 0600 password file")
     .action(async (directory: string, options: PasswordOptions) => {
       await startProject(await existingRoot(directory), options.passwordFile, loggerFor(program));
+    });
+
+  program
+    .command("sh")
+    .description("Open one authenticated interactive moose-proxy control session")
+    .argument("[directory]", "project directory or any child", ".")
+    .option("--password-file <path>", "override the configured 0600 password file")
+    .action(async (directory: string, options: PasswordOptions) => {
+      const global = program.opts<GlobalOptions>();
+      await startProjectShell(await existingRoot(directory), options.passwordFile, loggerFor(program), global.color);
     });
 
   program
