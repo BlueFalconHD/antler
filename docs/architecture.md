@@ -22,6 +22,7 @@ flowchart LR
 | --- | --- |
 | Command definitions and project discovery | `src/cli.ts`, `src/projectConfig.ts` |
 | Command implementations/runtime assembly | `src/commands/` |
+| Safe interactive command parsing and dispatch | `src/shell/`, `src/commands/shell.ts` |
 | Hidden prompt and protected password files | `src/secrets.ts` |
 | code-server login and in-memory cookies | `src/auth/codeServerAuth.ts` |
 | WebSocket and persistent framing | `src/transport/`, `src/vscode/persistentProtocol.ts` |
@@ -99,6 +100,13 @@ The listener frame must be sent before `watch`. The server creates the
 session-specific watcher when the first `fileChange` listener is attached and
 silently ignores `watch` if that session does not exist.
 
+The interactive control shell opens `ProjectRuntime` once. Its parsed command
+objects call that runtime's existing reconciler, state store, Git checkpoints,
+and remote-agent manager directly. It never recursively invokes the CLI, so
+the authentication cookie and Management connection remain live between
+commands. The parser supports quoting and escaping only; it has no evaluation
+or operating-system command path.
+
 ## Remote watch contract
 
 Each connection creates a random session id, subscribes to
@@ -117,6 +125,11 @@ Native watcher startup is asynchronous behind the watch RPC. The daemon closes
 that gap by installing both watchers before its startup full scan. A reconnect
 creates new session/request ids, resubscribes, and completes a full scan before
 processing queued changes.
+
+Local recursive watchers may report relative or absolute filenames depending
+on platform and event shape. Hard-reserved path components are filtered from
+the raw string first; absolute ordinary paths are then relativized and confined
+to the configured root before normalization.
 
 ## Reconciliation algorithm
 

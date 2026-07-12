@@ -93,6 +93,37 @@ moose-proxy checkpoints
 moose-proxy doctor
 ```
 
+### One-login interactive shell
+
+Use `sh` when you want to run several control commands without entering the
+ephemeral code-server password or rebuilding the WebSocket session each time:
+
+```text
+$ moose-proxy sh
+Code-server password:
+✓ Authenticated shell ready  profile=custom-v69  remoteRoot=/home/coder/project/datapack
+One login, one remote session. Type `help` for commands.
+
+moose-proxy › status
+moose-proxy › sync
+moose-proxy › conflicts
+moose-proxy › resolve "data/file with spaces.json" --take remote
+moose-proxy › doctor
+moose-proxy › exit
+```
+
+The shell supports `status`, `sync`, `conflicts`, `resolve`, `checkpoints`,
+`restore`, `doctor`, and `pwd`. All remote operations share the same in-memory
+session cookie and remote-agent connection until `exit`, Ctrl-C, or Ctrl-D.
+Command errors return to the prompt instead of dropping authentication.
+
+This is intentionally a moose-proxy control shell, not a local or remote OS
+shell: it performs no variable expansion, command substitution, or arbitrary
+command execution. `init` creates a different project and `start` is a
+continuous foreground daemon, so those remain top-level commands. Use
+`moose-proxy start` for automatic live synchronization and `moose-proxy sh`
+for repeated interactive control.
+
 Use `--format json` for machine-readable diagnostics, `--format plain` for
 stable uncolored lines, and `--log-level debug` for additional protocol-safe
 diagnostics.
@@ -114,6 +145,11 @@ Each local root contains a private `.moose_proxy/` directory:
 It is mode 0700, is hard-excluded from both synchronization directions, and is
 added to `.git/info/exclude` when the local root is a Git repository. Passwords
 and session cookies never enter it.
+
+Local watcher events for `.git`, `.moose_proxy`, and transfer temporary files
+are discarded before path normalization, whether macOS reports the event name
+as relative or absolute. Updating state therefore cannot trigger a watcher
+error or a reconciliation loop.
 
 If this directory is lost, the daemon refuses to start. Re-initialization does
 not invent a winner: common files are compared again and differences become

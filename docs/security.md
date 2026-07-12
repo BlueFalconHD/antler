@@ -70,6 +70,9 @@ configuration. A missing or malformed state file fails closed.
 - Logs redact credential/authorization fields and never contain file contents.
 - No local network listener exists.
 - Only management-channel `remoteFilesystem` calls and events are exposed.
+- The interactive shell recognizes a fixed command set and never evaluates
+  environment variables, substitutions, pipelines, or operating-system
+  commands. Quoting affects token boundaries only.
 
 `--insecure-skip-tls-verify`, `--omit-origin`, and
 `--allow-version-mismatch` are explicit compatibility/development escape

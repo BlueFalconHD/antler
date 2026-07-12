@@ -7,7 +7,7 @@ Validated on 2026-07-12 (America/Chicago) with Node 25.9.0 for moose-proxy.
 ```text
 npm run typecheck  passed
 npm run lint       passed
-npm test           passed
+npm test           passed (81 tests)
 npm run build      passed
 npm audit          0 vulnerabilities
 ```
@@ -19,6 +19,10 @@ The unit suite covers:
   isolation, and connection-loss cleanup;
 - watcher listener-before-watch ordering, payload validation, and idempotent
   unwatch/disposal;
+- absolute and relative macOS watcher-name filtering for `.git`,
+  `.moose_proxy`, and transfer temporary files;
+- interactive-shell quoting, command validation, unsupported-command failure,
+  and repeated dispatch through one supplied authenticated runtime;
 - traversal, absolute paths, separator ambiguity, hard state/Git exclusions,
   and remote watcher root confinement;
 - local atomic writes, state permissions, malformed/missing state failure, and
@@ -78,6 +82,12 @@ prefix against `/home/coder/project/datapack`. This directly verifies the
 custom authentication flow, prefix routing, Management handshake, remote
 watcher event, upload/download, conflict preservation/resolution, nested
 creation, rename, approved deletion, and cleanup.
+
+The built `moose-proxy sh` was then opened against the retained local pairing.
+One authentication established the custom-v69 Management connection; `status`
+reported 17 matching tracked entries, `doctor` created/disposed a remote watch
+and read both 17-entry trees, and `exit` closed the shared session cleanly. This
+shell smoke was read-only.
 
 No password or session cookie was written into the repository or sync state.
 The test password lived only in a protected temporary input file and was not

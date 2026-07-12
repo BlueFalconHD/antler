@@ -87,6 +87,37 @@ daemon always installs the watcher before its startup reconciliation. Events
 remain hints: a 30-second full reconciliation recovers from a missed/coalesced
 event. Watcher errors and reconnects trigger an immediate full scan.
 
+## Repeated `Reserved sync path component` watcher warnings
+
+`.git` and `.moose_proxy` activity is expected and should be silent. Older
+builds validated an absolute macOS watcher filename before recognizing the
+reserved component, causing a rapid warning/restart loop. Rebuild and restart
+the process so `dist/` contains the raw-path filter:
+
+```sh
+cd /path/to/moose_proxy
+npm run build
+node dist/index.js start /path/to/local/project
+```
+
+Stop the old process with Ctrl-C before launching the rebuilt one. A long-lived
+old loop can temporarily exhaust watcher descriptors (`EMFILE`); stopping all
+old moose-proxy processes releases them before the new daemon starts.
+
+The current watcher drops both absolute and relative reserved paths before
+normalization. If the warning remains after a clean restart, run with
+`--log-level debug` and report the first warning plus `node --version`; do not
+delete `.moose_proxy`.
+
+## Repeated commands keep asking for the password
+
+Top-level commands are independent processes and intentionally authenticate
+independently. For an interactive session, run `moose-proxy sh` once and use
+`status`, `sync`, `conflicts`, `resolve`, `checkpoints`, `restore`, and `doctor`
+at its prompt. The cookie and WebSocket remain in memory until the shell exits.
+Use `moose-proxy start` separately when continuous watch synchronization is
+desired.
+
 ## Reconnect loop
 
 Local edits remain queued. The daemon reconnects with bounded exponential
