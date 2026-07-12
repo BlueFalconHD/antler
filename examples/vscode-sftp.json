@@ -1,0 +1,14 @@
+{
+  "name": "moose-proxy localhost",
+  "protocol": "sftp",
+  "host": "127.0.0.1",
+  "port": 2222,
+  "username": "moose",
+  "remotePath": "/",
+  "uploadOnSave": false,
+  "downloadOnOpen": false,
+  "useTempFile": false,
+  "openSsh": false,
+  "concurrency": 4,
+  "ignore": ["/.vscode", "/.git", ".DS_Store"]
+}
