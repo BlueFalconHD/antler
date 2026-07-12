@@ -50,6 +50,7 @@ interface RunContext {
   readonly events: SyncEvent[];
   checkpoint: Promise<void> | undefined;
   transferredBytes: number;
+  parentsReady: boolean;
 }
 
 export class SyncEngine {
@@ -107,7 +108,7 @@ export class SyncEngine {
       }
     }
 
-    const context: RunContext = { events: [], checkpoint: undefined, transferredBytes: 0 };
+    const context: RunContext = { events: [], checkpoint: undefined, transferredBytes: 0, parentsReady: false };
     const renamed = await this.detectFileRenames(keys, localEntries, remoteEntries, context);
     for (const path of renamed) keys.delete(path);
     const directoryDeletes: Array<{ path: string; side: "local" | "remote" }> = [];
@@ -120,16 +121,24 @@ export class SyncEngine {
       .sort((left, right) => pathDepth(left) - pathDepth(right) || left.localeCompare(right));
     const directorySet = new Set(directoryKeys);
 
-    for (const key of directoryKeys) {
-      const deletion = await this.reconcileDirectory(
-        key,
-        localEntries.get(key),
-        remoteEntries.get(key),
-        reconcileOptions.approveDeletes ?? false,
-        context,
-      );
-      if (deletion) directoryDeletes.push(deletion);
+    for (let start = 0; start < directoryKeys.length;) {
+      const depth = pathDepth(directoryKeys[start]!);
+      let end = start + 1;
+      while (end < directoryKeys.length && pathDepth(directoryKeys[end]!) === depth) end += 1;
+      const deletions = await mapLimit(directoryKeys.slice(start, end), this.options.concurrency, (key) =>
+        this.reconcileDirectory(
+          key,
+          localEntries.get(key),
+          remoteEntries.get(key),
+          reconcileOptions.approveDeletes ?? false,
+          context,
+        ));
+      for (const deletion of deletions) {
+        if (deletion) directoryDeletes.push(deletion);
+      }
+      start = end;
     }
+    context.parentsReady = paths === undefined;
 
     const fileKeys = [...keys]
       .filter((key) => !directorySet.has(key))
@@ -176,11 +185,11 @@ export class SyncEngine {
     if (!local || !remote || local.kind !== "file" || remote.kind !== "file") {
       throw new Error("Type and deletion conflicts require manual filesystem changes before resolution");
     }
-    const context: RunContext = { events: [], checkpoint: undefined, transferredBytes: 0 };
+    const context: RunContext = { events: [], checkpoint: undefined, transferredBytes: 0, parentsReady: false };
     const source = take === "local" ? this.options.local : this.options.remote;
     const destination = take === "local" ? this.options.remote : this.options.local;
-    const stable = await this.readStable(source, normalized);
-    const losing = await this.readStable(destination, normalized);
+    const stable = await this.readStable(source, normalized, take === "local" ? local : remote);
+    const losing = await this.readStable(destination, normalized, take === "local" ? remote : local);
     await this.options.objects.writeConflict(normalized, take === "local" ? "remote" : "local", losing.content);
     if (take === "remote") {
       await this.ensureCheckpoint(context, `resolve-${normalized}`);
@@ -323,8 +332,8 @@ export class SyncEngine {
       await this.transfer(path, this.options.remote, this.options.local, remoteStatus.file, context);
       return;
     }
-    const localFile = localStatus.file ?? await this.readStable(this.options.local, path);
-    const remoteFile = remoteStatus.file ?? await this.readStable(this.options.remote, path);
+    const localFile = localStatus.file ?? await this.readStable(this.options.local, path, local);
+    const remoteFile = remoteStatus.file ?? await this.readStable(this.options.remote, path, remote);
     if (localFile.hash === remoteFile.hash) {
       await this.options.objects.put(localFile.content);
       await this.storeBaseline(path, localFile.hash, localFile.entry, remoteFile.entry);
@@ -342,8 +351,8 @@ export class SyncEngine {
   ): Promise<void> {
     if (local && remote) {
       const [localFile, remoteFile] = await Promise.all([
-        this.readStable(this.options.local, path),
-        this.readStable(this.options.remote, path),
+        this.readStable(this.options.local, path, local),
+        this.readStable(this.options.remote, path, remote),
       ]);
       if (localFile.hash === remoteFile.hash) {
         await this.options.objects.put(localFile.content);
@@ -355,9 +364,9 @@ export class SyncEngine {
       return;
     }
     if (local) {
-      await this.transfer(path, this.options.local, this.options.remote, undefined, context, false);
+      await this.transfer(path, this.options.local, this.options.remote, undefined, context, false, local);
     } else if (remote) {
-      await this.transfer(path, this.options.remote, this.options.local, undefined, context, false);
+      await this.transfer(path, this.options.remote, this.options.local, undefined, context, false, remote);
     }
   }
 
@@ -368,13 +377,16 @@ export class SyncEngine {
     knownFile: StableFile | undefined,
     context: RunContext,
     journal = true,
+    sourceEntry?: TreeEntry,
   ): Promise<void> {
     const started = performance.now();
-    const file = knownFile ?? await this.readStable(source, path);
+    const file = knownFile ?? await this.readStable(source, path, sourceEntry);
     await this.options.objects.put(file.content);
     const operation = source.side === "local" ? "upload" : "download";
     const journalId = journal ? await this.beginJournal(operation, path) : undefined;
-    await this.ensureDestinationParents(path, source, destination);
+    if (!context.parentsReady) {
+      await this.ensureDestinationParents(path, source, destination);
+    }
     const writeProgress = destination.side === "remote" ? this.byteProgress("upload", path) : undefined;
     const written = await destination.writeFileAtomic(path, file.content, writeProgress);
     const local = source.side === "local" ? file.entry : written;
@@ -419,22 +431,24 @@ export class SyncEngine {
     if (sameFingerprint(current, previous)) {
       return { changed: false };
     }
-    const file = await this.readStable(endpoint, path);
+    const file = await this.readStable(endpoint, path, current);
     return { changed: file.hash !== baseHash, file };
   }
 
-  private async readStable(endpoint: TreeEndpoint, path: string): Promise<StableFile> {
+  private async readStable(endpoint: TreeEndpoint, path: string, expected?: TreeEntry): Promise<StableFile> {
+    let knownEntry = expected;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const before = await endpoint.stat(path);
+      const before = knownEntry ?? await endpoint.stat(path);
       if (!before || before.kind !== "file") {
         throw new Error(`${endpoint.side} file changed type during synchronization: ${path}`);
       }
       const readProgress = endpoint.side === "remote" ? this.byteProgress("download", path) : undefined;
-      const content = await endpoint.readFile(path, readProgress);
+      const content = await endpoint.readFile(path, readProgress, before);
       const after = await endpoint.stat(path);
       if (after && after.kind === "file" && sameFingerprint(before, after) && after.size === content.length) {
         return { entry: after, content, hash: contentHash(content) };
       }
+      knownEntry = undefined;
     }
     throw new Error(`${endpoint.side} file kept changing during synchronization: ${path}`);
   }
@@ -463,8 +477,8 @@ export class SyncEngine {
     ) {
       return;
     }
-    const localFile = local?.kind === "file" ? knownLocal ?? await this.readStable(this.options.local, path) : undefined;
-    const remoteFile = remote?.kind === "file" ? knownRemote ?? await this.readStable(this.options.remote, path) : undefined;
+    const localFile = local?.kind === "file" ? knownLocal ?? await this.readStable(this.options.local, path, local) : undefined;
+    const remoteFile = remote?.kind === "file" ? knownRemote ?? await this.readStable(this.options.remote, path, remote) : undefined;
     if (localFile) await this.options.objects.put(localFile.content);
     if (remoteFile) await this.options.objects.put(remoteFile.content);
     this.options.state.mutate((state) => {
@@ -630,7 +644,7 @@ export class SyncEngine {
   ): Promise<void> {
     const additions = await mapLimit(addedPaths, this.options.concurrency, async (path) => ({
       path,
-      file: await this.readStable(source, path),
+      file: await this.readStable(source, path, sourceEntries.get(path)),
     }));
     const additionsByHash = new Map<string, Array<{ path: string; file: StableFile }>>();
     for (const addition of additions) addGrouped(additionsByHash, addition.file.hash, addition);

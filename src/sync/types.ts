@@ -94,7 +94,7 @@ export interface TreeEndpoint {
   readonly side: "local" | "remote";
   scan(): Promise<Map<string, TreeEntry>>;
   stat(relativePath: string): Promise<TreeEntry | undefined>;
-  readFile(relativePath: string, onProgress?: ByteProgress): Promise<Buffer>;
+  readFile(relativePath: string, onProgress?: ByteProgress, expected?: TreeEntry): Promise<Buffer>;
   writeFileAtomic(relativePath: string, content: Buffer, onProgress?: ByteProgress): Promise<TreeEntry>;
   mkdir(relativePath: string): Promise<TreeEntry>;
   delete(relativePath: string): Promise<void>;

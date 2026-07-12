@@ -44,6 +44,25 @@ describe("persistent remote-agent framing", () => {
     protocol.dispose();
   });
 
+  it("coalesces same-tick frames like VS Code's protocol writer", async () => {
+    const transport = new FakeTransport();
+    const protocol = new PersistentProtocol(transport);
+
+    await Promise.all([
+      protocol.sendRegular(Buffer.from("one")),
+      protocol.sendRegular(Buffer.from("two")),
+      protocol.sendRegular(Buffer.from("three")),
+    ]);
+
+    expect(transport.writes).toHaveLength(1);
+    expect(transport.writes[0]).toEqual(Buffer.concat([
+      frame(ProtocolMessageType.Regular, 1, 0, Buffer.from("one")),
+      frame(ProtocolMessageType.Regular, 2, 0, Buffer.from("two")),
+      frame(ProtocolMessageType.Regular, 3, 0, Buffer.from("three")),
+    ]));
+    protocol.dispose();
+  });
+
   it("parses a frame split across arbitrary WebSocket chunks", async () => {
     const transport = new FakeTransport();
     const protocol = new PersistentProtocol(transport);

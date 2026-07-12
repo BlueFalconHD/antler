@@ -33,8 +33,15 @@ interface ProtocolFrame {
   readonly data: Buffer;
 }
 
+interface PendingWrite {
+  readonly encoded: Buffer;
+  readonly resolve: () => void;
+  readonly reject: (error: Error) => void;
+}
+
 const HEADER_LENGTH = 13;
 const MAX_FRAME_BYTES = 128 * 1024 * 1024;
+const MAX_BATCH_BYTES = 16 * 1024 * 1024;
 
 function encodeFrame(frame: ProtocolFrame): Buffer {
   const header = Buffer.allocUnsafe(HEADER_LENGTH);
@@ -54,7 +61,8 @@ export class PersistentProtocol extends EventEmitter {
   private readonly unacknowledged = new Map<number, Buffer>();
   private writeChain: Promise<void> = Promise.resolve();
   private paused = false;
-  private readonly pausedWrites: Buffer[] = [];
+  private readonly pendingWrites: PendingWrite[] = [];
+  private flushTimer: NodeJS.Timeout | undefined;
   private ackTimer: NodeJS.Timeout | undefined;
   private readonly keepAliveTimer: NodeJS.Timeout;
   private disposed = false;
@@ -70,7 +78,7 @@ export class PersistentProtocol extends EventEmitter {
         id: 0,
         ack: this.incomingId,
         data: Buffer.alloc(0),
-      });
+      }).catch(() => undefined);
     }, 5_000);
   }
 
@@ -107,18 +115,26 @@ export class PersistentProtocol extends EventEmitter {
   }
 
   public async drain(): Promise<void> {
+    this.flushPendingWrites();
     await this.writeChain;
     await this.transport.drain();
   }
 
-  public dispose(): void {
+  public dispose(error = new Error("remote protocol is closed")): void {
     if (this.disposed) {
       return;
     }
     this.disposed = true;
     clearInterval(this.keepAliveTimer);
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = undefined;
+    }
     if (this.ackTimer) {
       clearTimeout(this.ackTimer);
+    }
+    for (const pending of this.pendingWrites.splice(0)) {
+      pending.reject(error);
     }
     this.removeAllListeners();
   }
@@ -168,7 +184,7 @@ export class PersistentProtocol extends EventEmitter {
             id: 0,
             ack: 0,
             data: Buffer.alloc(0),
-          });
+          }).catch(() => undefined);
         }
         break;
       case ProtocolMessageType.Control:
@@ -176,20 +192,19 @@ export class PersistentProtocol extends EventEmitter {
         break;
       case ProtocolMessageType.ReplayRequest:
         for (const encoded of this.unacknowledged.values()) {
-          void this.queueEncoded(encoded);
+          void this.queueEncoded(encoded).catch(() => undefined);
         }
         break;
       case ProtocolMessageType.Pause:
         this.paused = true;
+        if (this.flushTimer) {
+          clearTimeout(this.flushTimer);
+          this.flushTimer = undefined;
+        }
         break;
       case ProtocolMessageType.Resume:
         this.paused = false;
-        while (this.pausedWrites.length > 0) {
-          const encoded = this.pausedWrites.shift();
-          if (encoded) {
-            void this.queueEncoded(encoded);
-          }
-        }
+        this.scheduleFlush();
         break;
       case ProtocolMessageType.Disconnect:
         this.handleClose(new Error("remote protocol disconnected"));
@@ -214,7 +229,7 @@ export class PersistentProtocol extends EventEmitter {
         id: 0,
         ack: this.incomingAck,
         data: Buffer.alloc(0),
-      });
+      }).catch(() => undefined);
     }, 2_000);
   }
 
@@ -226,15 +241,54 @@ export class PersistentProtocol extends EventEmitter {
     if (this.disposed) {
       return Promise.reject(new Error("remote protocol is closed"));
     }
-    if (this.paused) {
-      this.pausedWrites.push(encoded);
-      return Promise.resolve();
+    const queued = new Promise<void>((resolve, reject) => {
+      this.pendingWrites.push({ encoded, resolve, reject });
+    });
+    this.scheduleFlush();
+    return queued;
+  }
+
+  private scheduleFlush(): void {
+    if (this.disposed || this.paused || this.flushTimer || this.pendingWrites.length === 0) {
+      return;
     }
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = undefined;
+      this.flushPendingWrites();
+    });
+  }
+
+  private flushPendingWrites(): void {
+    if (this.disposed || this.paused || this.pendingWrites.length === 0) {
+      return;
+    }
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = undefined;
+    }
+    let batchBytes = 0;
+    let batchLength = 0;
+    for (const entry of this.pendingWrites) {
+      if (batchLength > 0 && batchBytes + entry.encoded.length > MAX_BATCH_BYTES) break;
+      batchBytes += entry.encoded.length;
+      batchLength += 1;
+    }
+    const pending = this.pendingWrites.splice(0, batchLength);
+    const encoded = Buffer.concat(pending.map((entry) => entry.encoded), batchBytes);
     const write = this.writeChain.then(() => this.transport.send(encoded));
+    write.then(
+      () => {
+        for (const entry of pending) entry.resolve();
+      },
+      (error: unknown) => {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        for (const entry of pending) entry.reject(failure);
+      },
+    );
     this.writeChain = write.catch((error: unknown) => {
       this.handleClose(error instanceof Error ? error : new Error(String(error)));
     });
-    return write;
+    this.scheduleFlush();
   }
 
   private handleClose(error: Error): void {
@@ -242,6 +296,6 @@ export class PersistentProtocol extends EventEmitter {
       return;
     }
     this.emit("close", error);
-    this.dispose();
+    this.dispose(error);
   }
 }

@@ -5,6 +5,49 @@ import { LARGE_FILE_THRESHOLD_BYTES, TRANSFER_CHUNK_BYTES } from "../src/sync/tr
 import { FileType, type RemoteFileSystemClient, type RemoteStat } from "../src/vscode/remoteFileSystem.js";
 
 describe("remote tree large transfers", () => {
+  it("scans sibling directories concurrently through one global limit", async () => {
+    let activeDirectoryReads = 0;
+    let maximumDirectoryReads = 0;
+    const directory: RemoteStat = { type: FileType.Directory, ctime: 1, mtime: 1, size: 0 };
+    const client = {
+      readdir: vi.fn(async (absolutePath: string) => {
+        if (absolutePath === "/srv/project") {
+          return ["a", "b", "c", "d"].map((name) => ({ name, type: FileType.Directory }));
+        }
+        activeDirectoryReads += 1;
+        maximumDirectoryReads = Math.max(maximumDirectoryReads, activeDirectoryReads);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeDirectoryReads -= 1;
+        return [];
+      }),
+      stat: vi.fn(async () => directory),
+    } as unknown as RemoteFileSystemClient;
+    const tree = new RemoteTree({ manager: fakeManager(client), root: "/srv/project", concurrency: 4 });
+
+    await expect(tree.scan()).resolves.toHaveProperty("size", 4);
+    expect(maximumDirectoryReads).toBe(4);
+  });
+
+  it("reuses a scan-verified entry instead of restating every parent before reading", async () => {
+    const directory: RemoteStat = { type: FileType.Directory, ctime: 1, mtime: 1, size: 0 };
+    const file: RemoteStat = { type: FileType.File, ctime: 2, mtime: 2, size: 5 };
+    const client = {
+      readdir: vi.fn(async (absolutePath: string) => absolutePath === "/srv/project"
+        ? [{ name: "nested", type: FileType.Directory }]
+        : [{ name: "file.txt", type: FileType.File }]),
+      stat: vi.fn(async (absolutePath: string) => absolutePath.endsWith("file.txt") ? file : directory),
+      readFile: vi.fn(async () => Buffer.from("hello")),
+    } as unknown as RemoteFileSystemClient;
+    const tree = new RemoteTree({ manager: fakeManager(client), root: "/srv/project" });
+    const entries = await tree.scan();
+    const expected = entries.get("nested/file.txt");
+    const scanStatCalls = (client.stat as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    await expect(tree.readFile("nested/file.txt", undefined, expected)).resolves.toEqual(Buffer.from("hello"));
+    expect(client.stat).toHaveBeenCalledTimes(scanStatCalls);
+    expect(client.readFile).toHaveBeenCalledTimes(1);
+  });
+
   it("uses offset reads when progress is requested for a large file", async () => {
     const content = Buffer.alloc(LARGE_FILE_THRESHOLD_BYTES, 7);
     const client = fakeClient(content.length);

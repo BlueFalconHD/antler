@@ -3,7 +3,7 @@ import path from "node:path";
 import type { RemoteAgentManager } from "../remoteAgentManager.js";
 import { FileType, type RemoteFileSystemClient } from "../vscode/remoteFileSystem.js";
 import { isRemoteNotFound } from "../vscode/errors.js";
-import { mapLimit } from "./concurrency.js";
+import { drainTaskQueue } from "./concurrency.js";
 import { isHardExcluded, normalizeRelativePath, remotePath, TEMPORARY_FILE_PREFIX, validateRemoteRoot } from "./paths.js";
 import { LARGE_FILE_THRESHOLD_BYTES, TRANSFER_CHUNK_BYTES } from "./transferPolicy.js";
 import type { ByteProgress, TreeEndpoint, TreeEntry } from "./types.js";
@@ -19,6 +19,7 @@ export class RemoteTree implements TreeEndpoint {
   public readonly side = "remote" as const;
   public readonly root: string;
   private readonly concurrency: number;
+  private verifiedScan: { readonly generation: number; readonly entries: ReadonlyMap<string, TreeEntry> } | undefined;
 
   public constructor(private readonly options: RemoteTreeOptions) {
     this.root = validateRemoteRoot(options.root);
@@ -44,36 +45,39 @@ export class RemoteTree implements TreeEndpoint {
   public async scan(): Promise<Map<string, TreeEntry>> {
     const { client, generation } = await this.options.manager.get();
     const result = new Map<string, TreeEntry>();
-    const pending = [""];
-    while (pending.length > 0) {
+    type ScanTask =
+      | { readonly type: "directory"; readonly path: string }
+      | { readonly type: "entry"; readonly directory: string; readonly entry: { readonly name: string } };
+
+    await drainTaskQueue<ScanTask>([{ type: "directory", path: "" }], this.concurrency, async (task, enqueue) => {
       this.options.manager.assertGeneration(generation);
-      const directory = pending.shift()!;
-      const entries = await client.readdir(remotePath(this.root, directory));
-      const sorted = [...entries].sort((left, right) => left.name.localeCompare(right.name));
-      const scanned = await mapLimit(sorted, this.concurrency, async (entry) => {
-        if (entry.name.includes("/") || entry.name.includes("\\") || entry.name === "." || entry.name === "..") {
-          throw new Error("Remote directory returned an unsafe entry name");
+      if (task.type === "directory") {
+        const entries = await client.readdir(remotePath(this.root, task.path));
+        for (const entry of [...entries].sort((left, right) => left.name.localeCompare(right.name))) {
+          enqueue({ type: "entry", directory: task.path, entry });
         }
-        const relative = directory ? `${directory}/${entry.name}` : entry.name;
-        if (isHardExcluded(relative)) {
-          return undefined;
-        }
-        const value = await this.statWithClient(client, relative);
-        if (value && this.options.shouldIgnore?.(relative, value.kind === "directory")) {
-          return undefined;
-        }
-        return value;
-      });
-      for (const entry of scanned) {
-        if (!entry) {
-          continue;
-        }
-        result.set(entry.path, entry);
-        if (entry.kind === "directory") {
-          pending.push(entry.path);
-        }
+        return;
       }
-    }
+
+      const { directory, entry } = task;
+      if (entry.name.includes("/") || entry.name.includes("\\") || entry.name === "." || entry.name === "..") {
+        throw new Error("Remote directory returned an unsafe entry name");
+      }
+      const relative = directory ? `${directory}/${entry.name}` : entry.name;
+      if (isHardExcluded(relative)) {
+        return;
+      }
+      const value = await this.statWithClient(client, relative);
+      if (!value || this.options.shouldIgnore?.(relative, value.kind === "directory")) {
+        return;
+      }
+      result.set(value.path, value);
+      if (value.kind === "directory") {
+        enqueue({ type: "directory", path: value.path });
+      }
+    });
+    this.options.manager.assertGeneration(generation);
+    this.verifiedScan = { generation, entries: new Map(result) };
     return result;
   }
 
@@ -82,16 +86,21 @@ export class RemoteTree implements TreeEndpoint {
     return this.statWithClient(client, relativePath);
   }
 
-  public async readFile(relativePath: string, onProgress?: ByteProgress): Promise<Buffer> {
+  public async readFile(relativePath: string, onProgress?: ByteProgress, expected?: TreeEntry): Promise<Buffer> {
     const normalized = normalizeRelativePath(relativePath);
-    const entry = await this.verifyExisting(normalized, "file");
-    const { client } = await this.options.manager.get();
+    const { client, generation } = await this.options.manager.get();
+    const entry = this.isVerifiedScanEntry(normalized, expected, generation)
+      ? expected!
+      : await this.verifyExistingWithClient(client, normalized, "file");
     const absolute = remotePath(this.root, normalized);
+    let content: Buffer;
     if (onProgress && entry.size >= LARGE_FILE_THRESHOLD_BYTES) {
-      return client.readFileChunked(absolute, entry.size, TRANSFER_CHUNK_BYTES, onProgress);
+      content = await client.readFileChunked(absolute, entry.size, TRANSFER_CHUNK_BYTES, onProgress);
+    } else {
+      content = await client.readFile(absolute);
+      onProgress?.(content.length, entry.size);
     }
-    const content = await client.readFile(absolute);
-    onProgress?.(content.length, entry.size);
+    this.options.manager.assertGeneration(generation);
     return content;
   }
 
@@ -220,17 +229,35 @@ export class RemoteTree implements TreeEndpoint {
   }
 
   private async verifyExisting(relativePath: string, expected: "file" | "directory"): Promise<TreeEntry> {
+    const { client } = await this.options.manager.get();
+    return this.verifyExistingWithClient(client, relativePath, expected);
+  }
+
+  private async verifyExistingWithClient(
+    client: RemoteFileSystemClient,
+    relativePath: string,
+    expected: "file" | "directory",
+  ): Promise<TreeEntry> {
     const normalized = normalizeRelativePath(relativePath);
     const pieces = normalized.split("/").filter(Boolean);
     let target: TreeEntry | undefined;
     for (let index = 0; index <= pieces.length; index += 1) {
       const current = pieces.slice(0, index).join("/");
-      const entry = await this.stat(current);
+      const entry = await this.statWithClient(client, current);
       if (!entry || entry.kind !== (index === pieces.length ? expected : "directory")) {
         throw new Error(`Remote path is not a safe ${index === pieces.length ? expected : "directory"}: ${current}`);
       }
       target = entry;
     }
     return target!;
+  }
+
+  private isVerifiedScanEntry(relativePath: string, expected: TreeEntry | undefined, generation: number): boolean {
+    if (!expected || expected.path !== relativePath || expected.kind !== "file") {
+      return false;
+    }
+    const scan = this.verifiedScan;
+    const verified = scan?.entries.get(relativePath);
+    return scan?.generation === generation && verified === expected;
   }
 }

@@ -3,6 +3,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { LEGACY_STATE_DIRECTORY_NAME, STATE_DIRECTORY_NAME, validateRemoteRoot } from "./sync/paths.js";
 
+export const DEFAULT_SYNC_CONCURRENCY = 32;
+
 export interface ProjectConfig {
   readonly schemaVersion: 2;
   readonly projectId: string;
@@ -87,7 +89,7 @@ export function createProjectConfig(input: {
       ignores: [],
       reconciliationIntervalSeconds: 30,
       debounceMilliseconds: 180,
-      concurrency: 8,
+      concurrency: DEFAULT_SYNC_CONCURRENCY,
     },
     safety: {
       maxDeletes: 20,

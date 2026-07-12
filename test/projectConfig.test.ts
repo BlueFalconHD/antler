@@ -44,6 +44,7 @@ describe("Antler project configuration", () => {
     });
     expect(config.schemaVersion).toBe(2);
     expect(config.remote).not.toHaveProperty("profile");
+    expect(config.sync.concurrency).toBe(32);
   });
 
   it("atomically adopts legacy state and removes the legacy profile", async () => {
