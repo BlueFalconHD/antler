@@ -8,6 +8,23 @@ export interface ChangeWatcher {
   close(): Promise<void>;
 }
 
+export function localWatchPath(root: string, rawName: string | Buffer): string | undefined {
+  const rawPath = Buffer.isBuffer(rawName) ? rawName.toString("utf8") : rawName;
+  // Filter reserved components before normalizing. macOS recursive watchers
+  // can report either root-relative or absolute names depending on the event.
+  if (isHardExcluded(rawPath)) return undefined;
+  let relative = rawPath;
+  if (path.isAbsolute(rawPath)) {
+    relative = path.relative(path.resolve(root), path.resolve(rawPath));
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error("Local watcher path escapes the configured root");
+    }
+  }
+  if (path.basename(relative).startsWith(".moose_proxy-tmp-")) return undefined;
+  const normalized = normalizeRelativePath(relative.split(path.sep).join("/"));
+  return normalized || undefined;
+}
+
 export function watchLocal(
   root: string,
   onPaths: (paths: readonly string[]) => void,
@@ -21,11 +38,7 @@ export function watchLocal(
         return;
       }
       try {
-        const rawRelative = Buffer.isBuffer(rawName) ? rawName.toString("utf8") : rawName;
-        if (isHardExcluded(rawRelative) || path.basename(rawRelative).startsWith(".moose_proxy-tmp-")) {
-          return;
-        }
-        const relative = normalizeRelativePath(rawRelative);
+        const relative = localWatchPath(root, rawName);
         if (!relative) return;
         onPaths([relative]);
       } catch (error) {

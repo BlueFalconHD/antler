@@ -34,12 +34,10 @@ export function normalizeRelativePath(input: string): string {
 }
 
 export function isHardExcluded(relativePath: string): boolean {
-  try {
-    normalizeRelativePath(relativePath);
-    return false;
-  } catch (error) {
-    return error instanceof Error && /Reserved sync path component/.test(error.message);
-  }
+  return relativePath
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .some((piece) => HARD_EXCLUDED_NAMES.has(piece.toLowerCase()) || piece.startsWith(".moose_proxy-tmp-"));
 }
 
 export function localPath(root: string, relativePath: string): string {

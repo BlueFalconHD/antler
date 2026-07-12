@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isHardExcluded,
   normalizeRelativePath,
   relativeRemotePath,
   remotePath,
@@ -22,4 +23,21 @@ describe("sync path confinement", () => {
     expect(() => validateRemoteRoot("relative")).toThrow();
     expect(() => validateRemoteRoot("/srv/../etc")).toThrow();
   });
+
+  it.each([
+    ".git",
+    ".git/index",
+    ".GIT/config",
+    ".moose_proxy/state.json",
+    "/private/tmp/project/.moose_proxy/state.json",
+    "C:\\project\\.git\\index",
+    "src/.moose_proxy-tmp-upload",
+  ])("recognizes reserved components before path normalization: %s", (candidate) => {
+    expect(isHardExcluded(candidate)).toBe(true);
+  });
+
+  it.each(["src/main.ts", "/private/tmp/project/src/main.ts", "nested\\file.txt"])(
+    "does not exclude ordinary paths: %s",
+    (candidate) => expect(isHardExcluded(candidate)).toBe(false),
+  );
 });
