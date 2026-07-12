@@ -2,7 +2,7 @@ import type { Logger } from "../logging.js";
 import type { RemoteAgentManager } from "../remoteAgentManager.js";
 import { isConnectionError } from "../vscode/errors.js";
 import { SyncEngine } from "./syncEngine.js";
-import { watchLocal, watchRemote, type ChangeWatcher } from "./watchers.js";
+import { watchLocal, watchRemote, type ChangeWatcher, type LocalWatchErrorSource } from "./watchers.js";
 
 export interface SyncDaemonOptions {
   readonly localRoot: string;
@@ -24,6 +24,7 @@ export class SyncDaemon {
   private running = false;
   private stopped = false;
   private reconnecting = false;
+  private localRestart: Promise<void> | undefined;
 
   public constructor(private readonly options: SyncDaemonOptions) {}
 
@@ -31,7 +32,7 @@ export class SyncDaemon {
     this.localWatcher = watchLocal(
       this.options.localRoot,
       (paths) => this.schedule(paths),
-      (error) => this.handleWatcherError("local", error),
+      (error, source) => this.handleLocalWatcherError(error, source),
     );
     await this.installRemoteWatcher();
     this.running = true;
@@ -64,6 +65,7 @@ export class SyncDaemon {
     this.localWatcher = undefined;
     this.remoteWatcher = undefined;
     await Promise.allSettled(watchers.map((watcher) => watcher.close()));
+    await this.localRestart?.catch(() => undefined);
     while (this.running) {
       await new Promise<void>((resolve) => setTimeout(resolve, 10));
     }
@@ -127,15 +129,27 @@ export class SyncDaemon {
     void this.reconnect();
   };
 
-  private handleWatcherError(side: "local" | "remote", error: Error): void {
-    this.options.logger.warn(`${side === "local" ? "Local" : "Remote"} watcher requested reconciliation`, { error });
+  private handleLocalWatcherError(error: Error, source: LocalWatchErrorSource): void {
     this.fullRequested = true;
-    if (side === "remote") {
-      void this.reconnect();
-    } else {
-      void this.restartLocalWatcher();
+    if (source === "event") {
+      this.options.logger.warn("Local watcher ignored a malformed event; full reconciliation requested", { error });
       this.scheduleDrain();
+      return;
     }
+    if (this.localRestart) return;
+    this.options.logger.warn("Local watcher failed; restarting once", { error });
+    void this.restartLocalWatcher().catch((restartError: unknown) => {
+      this.options.logger.error("Local watcher restart failed; periodic reconciliation remains active", {
+        error: restartError,
+      });
+      this.scheduleDrain();
+    });
+  }
+
+  private handleRemoteWatcherError(error: Error): void {
+    this.options.logger.warn("Remote watcher requested reconciliation", { error });
+    this.fullRequested = true;
+    void this.reconnect();
   }
 
   private async installRemoteWatcher(): Promise<void> {
@@ -143,18 +157,30 @@ export class SyncDaemon {
       this.options.manager,
       this.options.remoteRoot,
       (paths) => this.schedule(paths),
-      (error) => this.handleWatcherError("remote", error),
+      (error) => this.handleRemoteWatcherError(error),
     );
   }
 
-  private async restartLocalWatcher(): Promise<void> {
-    await this.localWatcher?.close().catch(() => undefined);
+  private restartLocalWatcher(): Promise<void> {
+    if (!this.localRestart) {
+      this.localRestart = this.replaceLocalWatcher().finally(() => {
+        this.localRestart = undefined;
+      });
+    }
+    return this.localRestart;
+  }
+
+  private async replaceLocalWatcher(): Promise<void> {
+    const previous = this.localWatcher;
+    this.localWatcher = undefined;
+    await previous?.close().catch(() => undefined);
     if (this.stopped) return;
     this.localWatcher = watchLocal(
       this.options.localRoot,
       (paths) => this.schedule(paths),
-      (error) => this.handleWatcherError("local", error),
+      (error, source) => this.handleLocalWatcherError(error, source),
     );
+    this.scheduleDrain();
   }
 
   private async reconnect(): Promise<void> {

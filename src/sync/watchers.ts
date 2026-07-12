@@ -8,6 +8,8 @@ export interface ChangeWatcher {
   close(): Promise<void>;
 }
 
+export type LocalWatchErrorSource = "event" | "watcher";
+
 export function localWatchPath(root: string, rawName: string | Buffer): string | undefined {
   const rawPath = Buffer.isBuffer(rawName) ? rawName.toString("utf8") : rawName;
   // Filter reserved components before normalizing. macOS recursive watchers
@@ -28,7 +30,7 @@ export function localWatchPath(root: string, rawName: string | Buffer): string |
 export function watchLocal(
   root: string,
   onPaths: (paths: readonly string[]) => void,
-  onError: (error: Error) => void,
+  onError: (error: Error, source: LocalWatchErrorSource) => void,
 ): ChangeWatcher {
   let watcher: FSWatcher;
   try {
@@ -42,13 +44,13 @@ export function watchLocal(
         if (!relative) return;
         onPaths([relative]);
       } catch (error) {
-        onError(error instanceof Error ? error : new Error(String(error)));
+        onError(error instanceof Error ? error : new Error(String(error)), "event");
       }
     });
   } catch (error) {
     throw new Error(`Unable to start local filesystem watcher: ${error instanceof Error ? error.message : String(error)}`);
   }
-  watcher.on("error", onError);
+  watcher.on("error", (error) => onError(error, "watcher"));
   return {
     close: async () => {
       watcher.close();
