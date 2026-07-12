@@ -1,0 +1,41 @@
+{
+  "name": "moose-proxy",
+  "version": "0.1.0",
+  "description": "A local SFTP bridge for code-server remote filesystems",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "moose-proxy": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=20.18.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "dev": "tsx src/index.ts",
+    "lint": "eslint .",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:integration:sftp": "tsx test/integration/sftpSmoke.ts",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "14.0.2",
+    "ssh2": "1.17.0",
+    "tough-cookie": "6.0.0",
+    "undici": "7.16.0",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.7.2",
+    "@types/ssh2": "1.15.5",
+    "@types/ws": "8.18.1",
+    "eslint": "9.39.1",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.46.1",
+    "vitest": "3.2.4"
+  }
+}
