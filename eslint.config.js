@@ -5,7 +5,14 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ["dist/**", "reference/**"],
+    ignores: [
+      "dist/**",
+      "reference/**",
+      "integrations/**/.venv/**",
+      "integrations/**/dist/**",
+      "integrations/**/.pytest_cache/**",
+      "integrations/**/.ruff_cache/**",
+    ],
   },
   {
     files: ["**/*.ts"],

@@ -21,7 +21,27 @@ jobs:
       - run: bun run check
       - name: Smoke-test Unix executable
         if: runner.os != 'Windows'
-        run: ./dist/antler --version
+        run: bun scripts/verify-executable-version.mjs ./dist/antler
       - name: Smoke-test Windows executable
         if: runner.os == 'Windows'
-        run: .\dist\antler.exe --version
+        run: bun scripts/verify-executable-version.mjs .\dist\antler.exe
+
+  beet:
+    name: Check beet-antler
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integrations/beet-antler
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          working-directory: integrations/beet-antler
+          python-version: "3.14"
+          enable-cache: true
+      - run: uv sync --frozen --all-groups
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run basedpyright
+      - run: uv run pytest
+      - run: uv build

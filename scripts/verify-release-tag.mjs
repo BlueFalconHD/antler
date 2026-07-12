@@ -17,4 +17,15 @@ if (tag !== expected) {
   throw new Error(`Release tag ${tag} does not match package version ${expected}`);
 }
 
-process.stdout.write(`Release tag ${tag} matches package.json\n`);
+const beetProject = await readFile(
+  new URL("../integrations/beet-antler/pyproject.toml", import.meta.url),
+  "utf8",
+);
+const beetVersion = beetProject.match(/^version = "([^"]+)"$/m)?.[1];
+if (beetVersion !== packageJson.version) {
+  throw new Error(
+    `beet-antler version ${beetVersion ?? "(missing)"} does not match package version ${packageJson.version}`,
+  );
+}
+
+process.stdout.write(`Release tag ${tag} matches Antler and beet-antler package versions\n`);

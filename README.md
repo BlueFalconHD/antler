@@ -9,7 +9,7 @@
 
 Antler keeps a normal local datapack directory synchronized with its Legitimoose
 workspace. Editors, Git, formatters, and build tools can operate on local files
-as normal. Antler transfers ones that chnage to your Legitimoose pack.
+as normal. Antler transfers the files that change to your Legitimoose pack.
 
 ## Install
 
@@ -38,8 +38,10 @@ need neither Bun nor Node.js.
 
 Pushing a tag that matches the package version, such as `v0.1.0`, runs the
 GitHub Actions release workflow. It tests Antler, builds Linux x64, Windows x64,
-macOS Apple Silicon, and macOS Intel executables, publishes compressed artifacts
-and `SHA256SUMS` to a GitHub Release, and generates release notes.
+macOS Apple Silicon, and macOS Intel executables, builds the `beet-antler` Python
+package, publishes the artifacts and `SHA256SUMS` to a GitHub Release, and
+generates release notes. PyPI publishing is enabled through the `PUBLISH_PYPI`
+repository variable after trusted publishing is configured.
 
 ```sh
 git tag v0.1.0
@@ -66,6 +68,67 @@ entry, use `ANTLER_CODE_SERVER_PASSWORD` or `--password-file`.
 
 Initialization scans both file trees and syncs remote files. It is preferred to run initialization
 in an empty directory to avoid initialization conflicts.
+
+### Separate sync root
+
+The project directory containing `.antler/` can be separate from the directory
+that is synchronized. The sync root is stored relative to the project so the
+configuration remains portable.
+
+```sh
+antler init "$HOME/Projects/datapack" --sync-root dist
+```
+
+This keeps state in `$HOME/Projects/datapack/.antler/` while synchronizing only
+`$HOME/Projects/datapack/dist/`. The sync root must remain inside the project and
+must not resolve through a symlink outside it. A project-level `dist/` Git ignore
+does not prevent Antler from synchronizing its contents.
+
+For noninteractive initialization, the full browser URL can also be supplied by
+environment variable:
+
+```sh
+export ANTLER_CODE_SERVER_URL='https://code.legitimoose.com/<instance>/?folder=/home/coder/project/datapack'
+export ANTLER_CODE_SERVER_PASSWORD='<password>'
+antler init . --sync-root dist
+```
+
+## Beet integration
+
+The first-party `beet-antler` plugin downloads the appropriate Antler release
+binary into Beet's cache, verifies it against the release `SHA256SUMS`, and runs
+Antler after Beet has finished writing its output.
+
+```sh
+uv add --dev beet-antler
+```
+
+```json
+{
+  "output": "dist",
+  "pipeline": ["beet_antler"],
+  "meta": {
+    "antler": {
+      "version": "latest",
+      "sync": "auto",
+      "approve_deletes": false
+    }
+  }
+}
+```
+
+Set `ANTLER_CODE_SERVER_URL` and `ANTLER_CODE_SERVER_PASSWORD` as shown above.
+On the first successful build the plugin initializes `.antler/` in the Beet
+project root with `dist/` as its sync root. Later builds run a one-shot
+`antler sync` after output. With `sync: "auto"`, missing credentials skip setup
+and synchronization while still caching Antler; `sync: true` makes credentials
+and synchronization mandatory, and `sync: false` only caches the executable.
+
+Pin `version` to a release such as `0.1.2` for reproducible builds. The plugin
+checks `latest` at most once every 24 hours and can reuse a previously verified
+binary while offline. It never forces Antler's large-delete circuit breaker.
+Avoid running `antler start` for the same project while Beet is building; Antler
+will reject the concurrent operation rather than risk state corruption.
 
 ## Live synchronization
 
@@ -96,9 +159,9 @@ or error resolution. The shell supports `status`, `sync`, `conflicts`, `resolve`
 
 ## `.antler/` state
 
-Each local root contains a private `.antler/` directory that is excluded from both
-synchronization directions, and is added to `.git/info/exclude` when the local root
-is a Git repository.
+Each project root contains a private `.antler/` directory that is excluded from
+both synchronization directions and added to `.git/info/exclude` when the project
+is inside a Git repository.
 
 If this directory is lost or deleted, some information can be lost but no files
 should be deleted remotely or locally.
@@ -135,6 +198,8 @@ The CLI wraps the last operation safely and creates another checkpoint first:
 antler restore <checkpoint-ref> path/to/file
 ```
 
-If the sync root is not exactly a Git repository root, checkpoints are disabled
-and the base/conflict object store remains available. Run `git init` before
-`antler init` to enable checkpoint recovery for a new local directory.
+Checkpoints are available when the sync root is the Git repository root or a
+directory beneath it. Ignored nested roots such as Beet's `dist/` are force-added
+only to Antler's temporary checkpoint index; the real index and ignore rules are
+unchanged. If the sync root is outside the repository, the base/conflict object
+store remains available but Git checkpoints are disabled.

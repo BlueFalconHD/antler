@@ -1,5 +1,6 @@
 import path from "node:path";
 import { Command, Option } from "commander";
+import packageMetadata from "../package.json" with { type: "json" };
 import { doctorProject } from "./commands/doctor.js";
 import { initializeProject, type InitOptions } from "./commands/init.js";
 import { resolveConflict } from "./commands/resolve.js";
@@ -51,7 +52,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   const effectiveArguments = argv.length === 2 ? [...argv, "start"] : [...argv];
   const program = new Command()
     .name("antler")
-    .version("0.1.1")
+    .version(packageMetadata.version)
     .description("Local-first datapack synchronization for Legitimoose")
     .addOption(new Option("--format <format>", "diagnostic output style").choices(["pretty", "plain", "json"]).default(process.stderr.isTTY ? "pretty" : "plain"))
     .addOption(new Option("--log-level <level>", "diagnostic detail").choices(["debug", "info", "warn", "error"]).default("info"))

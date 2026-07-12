@@ -53,10 +53,10 @@ jobs:
       - run: bun run build:exe:${{ matrix.target }}
       - name: Smoke-test Unix executable
         if: runner.os != 'Windows'
-        run: ./dist/antler --version
+        run: bun scripts/verify-executable-version.mjs ./dist/antler
       - name: Smoke-test Windows executable
         if: runner.os == 'Windows'
-        run: .\dist\antler.exe --version
+        run: bun scripts/verify-executable-version.mjs .\dist\antler.exe
       - name: Package Unix executable
         if: runner.os != 'Windows'
         run: |
@@ -75,9 +75,36 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  beet:
+    name: Build beet-antler
+    needs: validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integrations/beet-antler
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          working-directory: integrations/beet-antler
+          python-version: "3.14"
+          enable-cache: true
+      - run: uv sync --frozen --all-groups
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run basedpyright
+      - run: uv run pytest
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beet-antler-python
+          path: integrations/beet-antler/dist/*
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Publish GitHub Release
-    needs: build
+    needs: [build, beet]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -87,6 +114,10 @@ jobs:
           pattern: antler-*
           path: release
           merge-multiple: true
+      - uses: actions/download-artifact@v5
+        with:
+          name: beet-antler-python
+          path: release
       - name: Generate checksums
         working-directory: release
         run: sha256sum antler-* > SHA256SUMS
@@ -103,3 +134,20 @@ jobs:
               --generate-notes \
               --title "Antler $GITHUB_REF_NAME"
           fi
+
+  publish-beet:
+    name: Publish beet-antler to PyPI
+    if: ${{ vars.PUBLISH_PYPI == 'true' }}
+    needs: release
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: beet-antler-python
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
