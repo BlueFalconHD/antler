@@ -124,7 +124,7 @@ project root with `dist/` as its sync root. Later builds run a one-shot
 and synchronization while still caching Antler; `sync: true` makes credentials
 and synchronization mandatory, and `sync: false` only caches the executable.
 
-Pin `version` to a release such as `0.1.2` for reproducible builds. The plugin
+Pin `version` to a release such as `0.1.3` for reproducible builds. The plugin
 checks `latest` at most once every 24 hours and can reuse a previously verified
 binary while offline. It never forces Antler's large-delete circuit breaker.
 Avoid running `antler start` for the same project while Beet is building; Antler

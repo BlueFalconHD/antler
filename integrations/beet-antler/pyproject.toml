@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "beet-antler"
-version = "0.1.2"
+version = "0.1.3"
 description = "Build-and-sync integration between Beet and Antler"
 readme = "README.md"
 license = "MIT"
