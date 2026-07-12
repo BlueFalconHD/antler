@@ -2,12 +2,41 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createProjectConfig, findProjectRoot, loadProjectConfig } from "../src/projectConfig.js";
+import {
+  createProjectConfig,
+  findProjectRoot,
+  loadProjectConfig,
+  parseConnectionUrl,
+} from "../src/projectConfig.js";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true }))));
 
 describe("Antler project configuration", () => {
+  it("accepts the normal browser workspace URL and infers its remote root", () => {
+    const parsed = parseConnectionUrl(
+      "https://code.legitimoose.com/99c37226-0c25-4aff-81ee-e1562ac39a4f/" +
+      "?folder=/home/coder/project/datapack",
+    );
+
+    expect(parsed.baseUrl.toString()).toBe(
+      "https://code.legitimoose.com/99c37226-0c25-4aff-81ee-e1562ac39a4f/",
+    );
+    expect(parsed.remoteRoot).toBe("/home/coder/project/datapack");
+  });
+
+  it("continues to accept a login URL and rejects unrelated base URL queries", () => {
+    const parsed = parseConnectionUrl(
+      "https://code.example.test/deployment/login?folder=/home/coder/project/datapack&to=",
+    );
+
+    expect(parsed.baseUrl.toString()).toBe("https://code.example.test/deployment/");
+    expect(parsed.remoteRoot).toBe("/home/coder/project/datapack");
+    expect(() => parseConnectionUrl("https://code.example.test/deployment/?token=unsafe")).toThrow(
+      /must include the remote folder parameter/,
+    );
+  });
+
   it("creates profile-free schema version 2 configuration", () => {
     const config = createProjectConfig({
       url: new URL("https://code.example.test/deployment/"),

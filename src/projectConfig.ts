@@ -48,8 +48,10 @@ export function parseConnectionUrl(raw: string): ParsedConnectionUrl {
   const pathname = url.pathname.replace(/\/+$/, "");
   if (pathname.endsWith("/login")) {
     url.pathname = `${pathname.slice(0, -"login".length)}`;
-  } else if (url.search) {
-    throw new Error("A query string is supported only on a pasted code-server /login URL");
+  } else if (url.search && !inferredRoot) {
+    throw new Error(
+      "A browser workspace URL query string must include the remote folder parameter",
+    );
   }
   url.pathname = `${url.pathname.replace(/\/+$/, "")}/`;
   url.search = "";

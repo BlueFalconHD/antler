@@ -20,6 +20,23 @@ interface PasswordOptions {
   readonly passwordFile?: string;
 }
 
+const PASSWORD_ARGUMENT_GUIDANCE =
+  "Antler does not accept raw passwords as command-line arguments because they may be exposed " +
+  "in shell history and process listings. Omit the password to enter it at the hidden prompt, " +
+  "or use --password-file or ANTLER_CODE_SERVER_PASSWORD for automation.";
+
+export function rejectRawPasswordOption(argv: readonly string[]): void {
+  if (argv.slice(2).some((argument) => argument === "--password" || argument.startsWith("--password="))) {
+    throw new Error(PASSWORD_ARGUMENT_GUIDANCE);
+  }
+}
+
+export function rejectUnexpectedInitArguments(arguments_: readonly string[]): void {
+  if (arguments_.length > 1) {
+    throw new Error(`Unexpected extra init argument. ${PASSWORD_ARGUMENT_GUIDANCE}`);
+  }
+}
+
 function loggerFor(program: Command): Logger {
   const options = program.opts<GlobalOptions>();
   return new Logger(options.logLevel, { format: options.format, color: options.color });
@@ -30,6 +47,7 @@ async function existingRoot(directory: string): Promise<string> {
 }
 
 export async function runCli(argv: readonly string[]): Promise<void> {
+  rejectRawPasswordOption(argv);
   const effectiveArguments = argv.length === 2 ? [...argv, "start"] : [...argv];
   const program = new Command()
     .name("antler")
@@ -44,14 +62,21 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .command("init")
     .description("Connect a local datapack directory to Legitimoose safely")
     .argument("[directory]", "local project directory", ".")
-    .option("--url <url>", "code-server base URL or the full browser /login?folder= URL")
-    .option("--remote-root <path>", "remote project directory (inferred from a pasted login URL)")
+    .option("--url <url>", "full browser workspace URL, including the folder query parameter")
+    .option("--remote-root <path>", "remote project directory (inferred from the browser URL)")
     .option("--password-file <path>", "file containing the code-server password")
     .option("--insecure-skip-tls-verify", "DEVELOPMENT ONLY: disable TLS certificate verification")
     .option("--omit-origin", "omit the browser-equivalent WebSocket Origin header")
     .option("--allow-version-mismatch", "continue after an explicit Legitimoose version mismatch")
     .option("--no-git", "disable Git safety checkpoints")
-    .action(async (directory: string, options: InitOptions) => {
+    .allowExcessArguments()
+    .addHelpText(
+      "after",
+      "\nThe password is requested in a hidden prompt. For automation, use --password-file " +
+      "or ANTLER_CODE_SERVER_PASSWORD; never put the raw password in the command.\n",
+    )
+    .action(async (directory: string, options: InitOptions, command: Command) => {
+      rejectUnexpectedInitArguments(command.args);
       await initializeProject(directory, options, loggerFor(program));
     });
 

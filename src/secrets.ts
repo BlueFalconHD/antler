@@ -9,7 +9,7 @@ export async function loadCodeServerPassword(filePath?: string): Promise<string>
   }
   const value = filePath
     ? await readProtectedFile(path.resolve(filePath), "Code-server password")
-    : environmentValue ?? await promptSecret("Code-server password");
+    : environmentValue ?? await promptSecret("Code-server password (input hidden)");
   if (!value) {
     throw new Error("Code-server password must not be empty");
   }

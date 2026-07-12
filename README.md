@@ -41,17 +41,21 @@ git push origin v0.1.0
 
 ## Connect a project
 
-Create or choose a local directory and paste the complete URL from the browser.
-The CLI understands `/login?folder=...` URLs, including path-prefixed
-deployments, and infers the remote project root.
+Create or choose a local directory, run `antler init`, and paste the complete URL
+from your browser address bar when prompted. The normal GUI workspace URL and
+the `/login?folder=...` URL are both accepted, including path-prefixed deployments.
+Antler infers the remote project root from the `folder` query parameter.
 
 ```sh
-antler init "$HOME/Projects/datapack" \
-  --url 'https://code.legitimoose.com/<your instance>/login?folder=/home/coder/project/datapack&to='
+antler init "$HOME/Projects/datapack"
+# Paste: https://code.legitimoose.com/<your instance>/?folder=/home/coder/project/datapack
+# Enter the code-server password at the hidden prompt.
 ```
 
-Your instance password is not written to project files or persisted at all.
-If you need automated password entry, use `ANTLER_CODE_SERVER_PASSWORD` or `--password-file`.
+Your instance password is not written to project files or persisted at all. Do
+not place it directly in the command because command arguments may be recorded
+in shell history or visible to other processes. If you need automated password
+entry, use `ANTLER_CODE_SERVER_PASSWORD` or `--password-file`.
 
 Initialization scans both file trees and syncs remote files. It is preferred to run initialization
 in an empty directory to avoid initialization conflicts.

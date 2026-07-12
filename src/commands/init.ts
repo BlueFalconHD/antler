@@ -39,7 +39,7 @@ export async function initializeProject(directory: string, options: InitOptions,
     }
   }
 
-  const rawUrl = options.url ?? await promptText("Paste the code-server URL");
+  const rawUrl = options.url ?? await promptText("Paste the full browser workspace URL");
   const parsed = parseConnectionUrl(rawUrl);
   const remoteRoot = options.remoteRoot ?? parsed.remoteRoot ?? await promptText("Remote project root");
   const password = await loadCodeServerPassword(options.passwordFile);
