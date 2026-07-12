@@ -4,7 +4,7 @@ import type { RemoteAgentManager } from "../remoteAgentManager.js";
 import { FileType, type RemoteFileSystemClient } from "../vscode/remoteFileSystem.js";
 import { isRemoteNotFound } from "../vscode/errors.js";
 import { mapLimit } from "./concurrency.js";
-import { isHardExcluded, normalizeRelativePath, remotePath, validateRemoteRoot } from "./paths.js";
+import { isHardExcluded, normalizeRelativePath, remotePath, TEMPORARY_FILE_PREFIX, validateRemoteRoot } from "./paths.js";
 import type { TreeEndpoint, TreeEntry } from "./types.js";
 
 export interface RemoteTreeOptions {
@@ -97,7 +97,7 @@ export class RemoteTree implements TreeEndpoint {
     await this.verifyExisting(parent, "directory");
     const { client, generation } = await this.options.manager.get();
     const destination = remotePath(this.root, normalized);
-    const temporary = path.posix.join(path.posix.dirname(destination), `.moose_proxy-tmp-${randomUUID()}`);
+    const temporary = path.posix.join(path.posix.dirname(destination), `${TEMPORARY_FILE_PREFIX}${randomUUID()}`);
     try {
       await client.writeFile(temporary, content, false);
       this.options.manager.assertGeneration(generation);

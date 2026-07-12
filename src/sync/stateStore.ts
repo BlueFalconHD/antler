@@ -40,7 +40,7 @@ export class StateStore {
       parsed = JSON.parse(await fs.readFile(this.filePath(), "utf8"));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new Error(`No sync state found at ${this.filePath()}; run moose-proxy init first`);
+        throw new Error(`No sync state found at ${this.filePath()}; run antler init first`);
       }
       throw new Error(`Unable to read sync state safely: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -104,7 +104,7 @@ export class StateStore {
     }
     const stat = await fs.lstat(this.directory);
     if (!stat.isDirectory() || stat.isSymbolicLink()) {
-      throw new Error(".moose_proxy must be a non-symlink directory");
+      throw new Error(".antler must be a non-symlink directory");
     }
     if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) {
       await fs.chmod(this.directory, 0o700);

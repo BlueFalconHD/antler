@@ -3,14 +3,17 @@ import { describe, expect, it } from "vitest";
 import { localWatchPath } from "../src/sync/watchers.js";
 
 describe("local watcher path handling", () => {
-  const root = path.resolve("/private/tmp/moose-proxy-watch-root");
+  const root = path.resolve("/private/tmp/antler-watch-root");
 
   it.each([
     ".git",
     ".git/index",
+    ".antler/state.json",
     ".moose_proxy/state.json",
     path.join(root, ".git", "index"),
+    path.join(root, ".antler", "state.json"),
     path.join(root, ".moose_proxy", "state.json"),
+    path.join(root, "src", ".antler-tmp-upload"),
     path.join(root, "src", ".moose_proxy-tmp-upload"),
   ])("silently drops reserved watcher events: %s", (candidate) => {
     expect(localWatchPath(root, candidate)).toBeUndefined();

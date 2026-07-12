@@ -8,7 +8,16 @@ import {
 } from "../src/sync/paths.js";
 
 describe("sync path confinement", () => {
-  it.each(["../escape", "a/../../escape", "/absolute", "a\\b", "a\0b", ".git/config", ".moose_proxy/state.json"])(
+  it.each([
+    "../escape",
+    "a/../../escape",
+    "/absolute",
+    "a\\b",
+    "a\0b",
+    ".git/config",
+    ".antler/state.json",
+    ".moose_proxy/state.json",
+  ])(
     "rejects %s",
     (candidate) => expect(() => normalizeRelativePath(candidate)).toThrow(),
   );
@@ -28,9 +37,11 @@ describe("sync path confinement", () => {
     ".git",
     ".git/index",
     ".GIT/config",
-    ".moose_proxy/state.json",
+    ".antler/state.json",
+    "/private/tmp/project/.antler/state.json",
     "/private/tmp/project/.moose_proxy/state.json",
     "C:\\project\\.git\\index",
+    "src/.antler-tmp-upload",
     "src/.moose_proxy-tmp-upload",
   ])("recognizes reserved components before path normalization: %s", (candidate) => {
     expect(isHardExcluded(candidate)).toBe(true);

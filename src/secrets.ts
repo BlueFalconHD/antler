@@ -2,9 +2,9 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 export async function loadCodeServerPassword(filePath?: string): Promise<string> {
-  const environmentValue = process.env.MOOSE_PROXY_CODE_SERVER_PASSWORD;
+  const environmentValue = process.env.ANTLER_CODE_SERVER_PASSWORD;
   if (filePath && environmentValue) {
-    throw new Error("Use either a password file or MOOSE_PROXY_CODE_SERVER_PASSWORD, not both");
+    throw new Error("Use either a password file or ANTLER_CODE_SERVER_PASSWORD, not both");
   }
   const value = filePath
     ? await readProtectedFile(path.resolve(filePath), "Code-server password")
@@ -54,7 +54,7 @@ async function readProtectedFile(filePath: string, label: string): Promise<strin
 async function promptSecret(label: string): Promise<string> {
   if (!process.stdin.isTTY || !process.stdin.setRawMode) {
     throw new Error(
-      `${label} is required. Set MOOSE_PROXY_CODE_SERVER_PASSWORD or configure a protected password file.`,
+      `${label} is required. Set ANTLER_CODE_SERVER_PASSWORD or configure a protected password file.`,
     );
   }
   process.stderr.write(`${label}: `);

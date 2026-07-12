@@ -1,7 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import type { CodeServerSession } from "../src/auth/codeServerAuth.js";
-import { compatibilityProfiles } from "../src/compatibility/profiles.js";
 import { RemoteAgentManager } from "../src/remoteAgentManager.js";
 import type { RemoteAgentConnection } from "../src/vscode/handshake.js";
 import type { IpcClient } from "../src/vscode/ipcClient.js";
@@ -12,7 +11,6 @@ describe("remote connection loss", () => {
     const protocols: EventEmitter[] = [];
     const manager = new RemoteAgentManager({
       session: { close: async () => undefined } as CodeServerSession,
-      profile: compatibilityProfiles["public-v4.20.1"],
       rejectUnauthorized: true,
       sendOrigin: true,
       connector: async () => {

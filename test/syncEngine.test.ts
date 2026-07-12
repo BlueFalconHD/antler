@@ -78,7 +78,7 @@ afterEach(async () => Promise.all(roots.splice(0).map((root) => fs.rm(root, { re
 async function setup(local: MemoryTree, remote: MemoryTree) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "moose-engine-"));
   roots.push(root);
-  const state = new StateStore(path.join(root, ".moose_proxy"));
+  const state = new StateStore(path.join(root, ".antler"));
   await state.initialize("project");
   const checkpoints: string[] = [];
   const git = {
@@ -91,7 +91,7 @@ async function setup(local: MemoryTree, remote: MemoryTree) {
     local,
     remote,
     state,
-    objects: new ObjectStore(path.join(root, ".moose_proxy")),
+    objects: new ObjectStore(path.join(root, ".antler")),
     git,
     concurrency: 4,
     maxDeletes: 20,

@@ -11,27 +11,27 @@ describe("durable sync state", () => {
   it("writes state atomically with private permissions", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "moose-state-"));
     roots.push(root);
-    const store = new StateStore(path.join(root, ".moose_proxy"));
+    const store = new StateStore(path.join(root, ".antler"));
     await store.initialize("project");
     await store.recordJournal({ id: "operation", action: "upload", path: "a.txt", startedAt: "now" });
-    const loaded = await new StateStore(path.join(root, ".moose_proxy")).load();
+    const loaded = await new StateStore(path.join(root, ".antler")).load();
     expect(loaded.journal.operation?.path).toBe("a.txt");
     await store.commit((state) => {
       state.lastReconciledAt = "now";
     });
-    expect(Object.keys((await new StateStore(path.join(root, ".moose_proxy")).load()).journal)).toHaveLength(0);
+    expect(Object.keys((await new StateStore(path.join(root, ".antler")).load()).journal)).toHaveLength(0);
     if (process.platform !== "win32") {
-      expect((await fs.stat(path.join(root, ".moose_proxy"))).mode & 0o077).toBe(0);
-      expect((await fs.stat(path.join(root, ".moose_proxy", "state.json"))).mode & 0o077).toBe(0);
+      expect((await fs.stat(path.join(root, ".antler"))).mode & 0o077).toBe(0);
+      expect((await fs.stat(path.join(root, ".antler", "state.json"))).mode & 0o077).toBe(0);
     }
   });
 
   it("fails closed on malformed or missing state", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "moose-state-"));
     roots.push(root);
-    const directory = path.join(root, ".moose_proxy");
+    const directory = path.join(root, ".antler");
     await fs.mkdir(directory);
-    await expect(new StateStore(directory).load()).rejects.toThrow(/run moose-proxy init/);
+    await expect(new StateStore(directory).load()).rejects.toThrow(/run antler init/);
     await fs.writeFile(path.join(directory, "state.json"), "{}");
     await expect(new StateStore(directory).load()).rejects.toThrow(/malformed/);
   });

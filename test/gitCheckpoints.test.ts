@@ -22,24 +22,34 @@ describe("Git safety checkpoints", () => {
     await fs.writeFile(path.join(root, "untracked.txt"), "new");
     const beforeHead = (await execute("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim();
     const beforeStatus = (await execute("git", ["-C", root, "status", "--porcelain"])).stdout;
-    const checkpoints = new GitCheckpoints(root, path.join(root, ".moose_proxy"), true);
+    const checkpoints = new GitCheckpoints(root, path.join(root, ".antler"), true);
     expect((await checkpoints.initialize()).available).toBe(true);
     const reference = await checkpoints.checkpoint("inbound-test");
-    expect(reference).toMatch(/^refs\/moose-proxy\/checkpoints\//);
+    expect(reference).toMatch(/^refs\/antler\/checkpoints\//);
     expect((await execute("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim()).toBe(beforeHead);
     expect((await execute("git", ["-C", root, "status", "--porcelain"])).stdout).toBe(beforeStatus);
     const names = (await execute("git", ["-C", root, "ls-tree", "-r", "--name-only", reference!])).stdout;
     expect(names).toContain("tracked.txt");
     expect(names).toContain("untracked.txt");
-    expect(names).not.toContain(".moose_proxy");
+    expect(names).not.toContain(".antler");
     expect((await checkpoints.list())[0]?.reference).toBe(reference);
+    const exclude = await fs.readFile(path.join(root, ".git", "info", "exclude"), "utf8");
+    expect(exclude.split(/\r?\n/)).toContain(".antler/");
+
+    const commit = (await execute("git", ["-C", root, "rev-parse", reference!])).stdout.trim();
+    const legacyReference = "refs/moose-proxy/checkpoints/legacy-test";
+    await execute("git", ["-C", root, "update-ref", legacyReference, commit]);
+    expect((await checkpoints.list()).map((checkpoint) => checkpoint.reference)).toContain(legacyReference);
 
     await fs.writeFile(path.join(root, "tracked.txt"), "after checkpoint");
     const indexBeforeRestore = (await execute("git", ["-C", root, "diff", "--cached"])).stdout;
     const preRestore = await checkpoints.restore(reference!, "tracked.txt");
     expect(await fs.readFile(path.join(root, "tracked.txt"), "utf8")).toBe("modified");
     expect((await execute("git", ["-C", root, "diff", "--cached"])).stdout).toBe(indexBeforeRestore);
-    expect(preRestore).toMatch(/^refs\/moose-proxy\/checkpoints\//);
+    expect(preRestore).toMatch(/^refs\/antler\/checkpoints\//);
+    await fs.writeFile(path.join(root, "tracked.txt"), "after legacy checkpoint");
+    await expect(checkpoints.restore(legacyReference, "tracked.txt")).resolves.toMatch(/^refs\/antler\/checkpoints\//);
+    expect(await fs.readFile(path.join(root, "tracked.txt"), "utf8")).toBe("modified");
     await expect(checkpoints.restore(reference!, "../escape")).rejects.toThrow();
   });
 });

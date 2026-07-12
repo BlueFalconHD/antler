@@ -98,8 +98,22 @@ class InMemoryCodeServerSession implements CodeServerSession {
   }
 
   public async close(): Promise<void> {
-    await this.dispatcher.close();
+    await closeDispatcher(this.dispatcher);
   }
+}
+
+export async function closeDispatcher(dispatcher: Dispatcher): Promise<void> {
+  const lifecycle = dispatcher as unknown as {
+    close?: () => Promise<void> | void;
+    destroy?: () => Promise<void> | void;
+  };
+  if (typeof lifecycle.close === "function") {
+    await lifecycle.close.call(dispatcher);
+  } else if (typeof lifecycle.destroy === "function") {
+    await lifecycle.destroy.call(dispatcher);
+  }
+  // Bun's Undici-compatible Agent is a resource-free dispatcher marker and
+  // exposes neither method. In that runtime there is nothing explicit to close.
 }
 
 export async function authenticateCodeServer(options: CodeServerSessionOptions): Promise<CodeServerSession> {

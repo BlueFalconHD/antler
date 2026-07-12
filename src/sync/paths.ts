@@ -1,7 +1,10 @@
 import path from "node:path";
 
-export const STATE_DIRECTORY_NAME = ".moose_proxy";
-export const HARD_EXCLUDED_NAMES = new Set([STATE_DIRECTORY_NAME, ".git"]);
+export const STATE_DIRECTORY_NAME = ".antler";
+export const LEGACY_STATE_DIRECTORY_NAME = ".moose_proxy";
+export const TEMPORARY_FILE_PREFIX = ".antler-tmp-";
+export const LEGACY_TEMPORARY_FILE_PREFIX = ".moose_proxy-tmp-";
+export const HARD_EXCLUDED_NAMES = new Set([STATE_DIRECTORY_NAME, LEGACY_STATE_DIRECTORY_NAME, ".git"]);
 
 export function validateRemoteRoot(remoteRoot: string): string {
   if (!remoteRoot.startsWith("/") || remoteRoot.includes("\0") || remoteRoot.includes("\\")) {
@@ -26,7 +29,7 @@ export function normalizeRelativePath(input: string): string {
     throw new Error("Parent traversal is not allowed");
   }
   for (const piece of pieces) {
-    if (HARD_EXCLUDED_NAMES.has(piece.toLowerCase()) || piece.startsWith(".moose_proxy-tmp-")) {
+    if (HARD_EXCLUDED_NAMES.has(piece.toLowerCase()) || isTemporaryName(piece)) {
       throw new Error(`Reserved sync path component: ${piece}`);
     }
   }
@@ -37,7 +40,11 @@ export function isHardExcluded(relativePath: string): boolean {
   return relativePath
     .split(/[\\/]/)
     .filter(Boolean)
-    .some((piece) => HARD_EXCLUDED_NAMES.has(piece.toLowerCase()) || piece.startsWith(".moose_proxy-tmp-"));
+    .some((piece) => HARD_EXCLUDED_NAMES.has(piece.toLowerCase()) || isTemporaryName(piece));
+}
+
+export function isTemporaryName(name: string): boolean {
+  return name.startsWith(TEMPORARY_FILE_PREFIX) || name.startsWith(LEGACY_TEMPORARY_FILE_PREFIX);
 }
 
 export function localPath(root: string, relativePath: string): string {

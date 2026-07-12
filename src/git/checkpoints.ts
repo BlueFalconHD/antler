@@ -4,6 +4,9 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { normalizeRelativePath } from "../sync/paths.js";
 
+const CHECKPOINT_PREFIX = "refs/antler/checkpoints/";
+const LEGACY_CHECKPOINT_PREFIX = "refs/moose-proxy/checkpoints/";
+
 export interface GitStatus {
   readonly available: boolean;
   readonly branch?: string;
@@ -72,17 +75,17 @@ export class GitCheckpoints {
     const environment = {
       ...process.env,
       GIT_INDEX_FILE: index,
-      GIT_AUTHOR_NAME: "moose-proxy",
-      GIT_AUTHOR_EMAIL: "moose-proxy@localhost",
-      GIT_COMMITTER_NAME: "moose-proxy",
-      GIT_COMMITTER_EMAIL: "moose-proxy@localhost",
+      GIT_AUTHOR_NAME: "Antler",
+      GIT_AUTHOR_EMAIL: "antler@localhost",
+      GIT_COMMITTER_NAME: "Antler",
+      GIT_COMMITTER_EMAIL: "antler@localhost",
     };
     try {
       await mustGit(this.repositoryRoot, ["read-tree", "--empty"], environment);
       await mustGit(this.repositoryRoot, ["add", "-A", "--", "."], environment);
       await mustGit(
         this.repositoryRoot,
-        ["rm", "-r", "--cached", "--ignore-unmatch", "--quiet", ".moose_proxy"],
+        ["rm", "-r", "--cached", "--ignore-unmatch", "--quiet", ".antler", ".moose_proxy"],
         environment,
       );
       const tree = (await mustGit(this.repositoryRoot, ["write-tree"], environment)).stdout.trim();
@@ -96,12 +99,12 @@ export class GitCheckpoints {
           this.repositoryRoot,
           commitArguments,
           environment,
-          `moose-proxy safety checkpoint: ${label}\n`,
+          `Antler safety checkpoint: ${label}\n`,
         )
       ).stdout.trim();
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const safeLabel = label.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 48) || "sync";
-      const reference = `refs/moose-proxy/checkpoints/${timestamp}-${safeLabel}-${randomUUID().slice(0, 8)}`;
+      const reference = `${CHECKPOINT_PREFIX}${timestamp}-${safeLabel}-${randomUUID().slice(0, 8)}`;
       await mustGit(this.repositoryRoot, ["update-ref", reference, commit, ""]);
       return reference;
     } finally {
@@ -115,7 +118,8 @@ export class GitCheckpoints {
       "for-each-ref",
       "--sort=-creatordate",
       "--format=%(refname)%09%(objectname)%09%(creatordate:iso8601-strict)",
-      "refs/moose-proxy/checkpoints/",
+      CHECKPOINT_PREFIX,
+      LEGACY_CHECKPOINT_PREFIX,
     ]);
     return result.stdout.split("\n").filter(Boolean).map((line) => {
       const [reference, commit, createdAt] = line.split("\t");
@@ -126,8 +130,8 @@ export class GitCheckpoints {
 
   public async restore(reference: string, relativePath: string): Promise<string> {
     if (!this.repositoryRoot) throw new Error("Git checkpoints are unavailable for this project");
-    if (!reference.startsWith("refs/moose-proxy/checkpoints/")) {
-      throw new Error("Restore source must be a refs/moose-proxy/checkpoints/ reference");
+    if (!reference.startsWith(CHECKPOINT_PREFIX) && !reference.startsWith(LEGACY_CHECKPOINT_PREFIX)) {
+      throw new Error(`Restore source must be a ${CHECKPOINT_PREFIX} reference`);
     }
     const normalized = normalizeRelativePath(relativePath);
     if (!normalized) throw new Error("Restoring the entire sync root is not allowed");
@@ -152,9 +156,9 @@ export class GitCheckpoints {
         throw error;
       }
     }
-    if (!contents.split(/\r?\n/).includes(".moose_proxy/")) {
+    if (!contents.split(/\r?\n/).includes(".antler/")) {
       await fs.mkdir(path.dirname(excludeFile), { recursive: true });
-      await fs.appendFile(excludeFile, `${contents && !contents.endsWith("\n") ? "\n" : ""}.moose_proxy/\n`);
+      await fs.appendFile(excludeFile, `${contents && !contents.endsWith("\n") ? "\n" : ""}.antler/\n`);
     }
   }
 }

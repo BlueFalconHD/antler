@@ -1,14 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { CodeServerSession } from "../auth/codeServerAuth.js";
-import type { CompatibilityProfile } from "../compatibility/profiles.js";
-import { remoteAgentPath } from "../compatibility/profiles.js";
+import { LEGITIMOOSE_COMPATIBILITY, remoteAgentPath } from "../compatibility/legitimoose.js";
 import { WebSocketTransport } from "../transport/webSocketTransport.js";
 import { IpcClient } from "./ipcClient.js";
 import { PersistentProtocol } from "./persistentProtocol.js";
 
 export interface RemoteAgentConnectionOptions {
   readonly session: CodeServerSession;
-  readonly profile: CompatibilityProfile;
   readonly rejectUnauthorized: boolean;
   readonly sendOrigin: boolean;
   readonly timeoutMs?: number;
@@ -22,10 +20,10 @@ export interface RemoteAgentConnection {
   close(): Promise<void>;
 }
 
-function websocketUrl(baseUrl: URL, profile: CompatibilityProfile, reconnectionToken: string): URL {
+function websocketUrl(baseUrl: URL, reconnectionToken: string): URL {
   const url = new URL(baseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = `${url.pathname.replace(/\/+$/, "")}${remoteAgentPath(profile)}`.replace(/\/{2,}/g, "/");
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}${remoteAgentPath()}`.replace(/\/{2,}/g, "/");
   url.search = new URLSearchParams({
     reconnectionToken,
     reconnection: "false",
@@ -70,7 +68,7 @@ function waitForControl(protocol: PersistentProtocol, timeoutMs: number): Promis
 export async function connectRemoteAgent(options: RemoteAgentConnectionOptions): Promise<RemoteAgentConnection> {
   const timeoutMs = options.timeoutMs ?? 15_000;
   const reconnectionToken = randomUUID();
-  const url = websocketUrl(options.session.baseUrl, options.profile, reconnectionToken);
+  const url = websocketUrl(options.session.baseUrl, reconnectionToken);
   const cookie = await options.session.cookieHeader(url);
   const transport = await WebSocketTransport.connect({
     url,
@@ -97,7 +95,7 @@ export async function connectRemoteAgent(options: RemoteAgentConnectionOptions):
     Buffer.from(
       JSON.stringify({
         type: "connectionType",
-        commit: options.profile.productCommit,
+        commit: LEGITIMOOSE_COMPATIBILITY.productCommit,
         signedData: sign.data,
         desiredConnectionType: 1,
       }),

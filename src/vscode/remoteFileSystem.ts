@@ -97,7 +97,7 @@ export class RemoteFileSystemClient {
 
   public async openWritePreserve(path: string): Promise<number> {
     if (!this.writePreservingOpenOptions) {
-      throw new Error("selected compatibility profile does not support non-truncating write-open");
+      throw new Error("Legitimoose does not expose a verified non-truncating write-open operation");
     }
     return (await this.call("open", [this.uri(path), this.writePreservingOpenOptions])) as number;
   }

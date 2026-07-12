@@ -7,7 +7,6 @@ import { startProjectShell } from "./commands/shell.js";
 import { startProject } from "./commands/start.js";
 import { listCheckpoints, listConflicts, projectStatus, restoreCheckpoint } from "./commands/status.js";
 import { syncProjectOnce } from "./commands/sync.js";
-import { compatibilityProfiles, type CompatibilityProfileName } from "./compatibility/profiles.js";
 import { Logger, type LogFormat, type LogLevel } from "./logging.js";
 import { findProjectRoot } from "./projectConfig.js";
 
@@ -33,9 +32,9 @@ async function existingRoot(directory: string): Promise<string> {
 export async function runCli(argv: readonly string[]): Promise<void> {
   const effectiveArguments = argv.length === 2 ? [...argv, "start"] : [...argv];
   const program = new Command()
-    .name("moose-proxy")
-    .version("0.2.0")
-    .description("Fast, conflict-safe bidirectional sync for code-server projects")
+    .name("antler")
+    .version("0.3.0")
+    .description("Local-first datapack synchronization for Legitimoose")
     .addOption(new Option("--format <format>", "diagnostic output style").choices(["pretty", "plain", "json"]).default(process.stderr.isTTY ? "pretty" : "plain"))
     .addOption(new Option("--log-level <level>", "diagnostic detail").choices(["debug", "info", "warn", "error"]).default("info"))
     .option("--no-color", "disable terminal colors")
@@ -43,21 +42,16 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 
   program
     .command("init")
-    .description("Connect a local directory to a code-server project safely")
+    .description("Connect a local datapack directory to Legitimoose safely")
     .argument("[directory]", "local project directory", ".")
     .option("--url <url>", "code-server base URL or the full browser /login?folder= URL")
     .option("--remote-root <path>", "remote project directory (inferred from a pasted login URL)")
-    .addOption(new Option("--profile <profile>", "compatibility profile").choices(Object.keys(compatibilityProfiles)))
     .option("--password-file <path>", "0600 file containing the code-server password")
     .option("--insecure-skip-tls-verify", "DEVELOPMENT ONLY: disable TLS certificate verification")
     .option("--omit-origin", "omit the browser-equivalent WebSocket Origin header")
-    .option("--allow-version-mismatch", "continue after an explicit profile/version mismatch")
+    .option("--allow-version-mismatch", "continue after an explicit Legitimoose version mismatch")
     .option("--no-git", "disable Git safety checkpoints")
-    .action(async (directory: string, raw: InitOptions & { profile?: string }) => {
-      const options: InitOptions = {
-        ...raw,
-        ...(raw.profile ? { profile: raw.profile as CompatibilityProfileName } : {}),
-      };
+    .action(async (directory: string, options: InitOptions) => {
       await initializeProject(directory, options, loggerFor(program));
     });
 
@@ -72,7 +66,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 
   program
     .command("sh")
-    .description("Open one authenticated interactive moose-proxy control session")
+    .description("Open one authenticated interactive Antler control session")
     .argument("[directory]", "project directory or any child", ".")
     .option("--password-file <path>", "override the configured 0600 password file")
     .action(async (directory: string, options: PasswordOptions) => {
@@ -139,7 +133,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   program
     .command("restore")
     .description("Restore one local path from a safety checkpoint without changing the Git index")
-    .argument("<checkpoint>", "full refs/moose-proxy/checkpoints/... reference")
+    .argument("<checkpoint>", "full refs/antler/checkpoints/... reference")
     .argument("<path>", "root-relative file path")
     .option("--project <directory>", "project directory or any child", ".")
     .action(async (checkpoint: string, relativePath: string, options: { project: string }) => {

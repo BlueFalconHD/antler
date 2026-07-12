@@ -28,9 +28,9 @@ export const SHELL_HELP = `Commands
   help                                Show this help
   exit                                Disconnect and leave the shell
 
-Paths containing spaces may be quoted. This is a moose-proxy control shell;
+Paths containing spaces may be quoted. This is an Antler control shell;
 it never executes local or remote operating-system commands. Use
-\`moose-proxy start\` outside this shell for continuous synchronization.`;
+\`antler start\` outside this shell for continuous synchronization.`;
 
 export function parseShellCommand(line: string): ShellCommand {
   const [rawName, ...args] = tokenizeShellLine(line);
@@ -74,7 +74,7 @@ export function parseShellCommand(line: string): ShellCommand {
     case "init":
       throw new Error("init creates a project and cannot run inside an open project shell");
     case "start":
-      throw new Error("start is continuous; exit this shell and run `moose-proxy start`");
+      throw new Error("start is continuous; exit this shell and run `antler start`");
     default:
       throw new Error(`Unknown command: ${rawName}. Type \`help\` for available commands.`);
   }

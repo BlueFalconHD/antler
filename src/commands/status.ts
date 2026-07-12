@@ -18,7 +18,6 @@ export async function projectStatus(localRoot: string, json: boolean): Promise<v
     localRoot,
     remoteUrl: config.remote.url,
     remoteRoot: config.remote.root,
-    profile: config.remote.profile,
     trackedEntries: Object.keys(state.entries).length,
     conflicts: Object.values(state.conflicts),
     pendingDeletes: Object.values(state.pendingDeletes),
@@ -34,7 +33,6 @@ export async function projectStatus(localRoot: string, json: boolean): Promise<v
     [
       `Local       ${localRoot}`,
       `Remote      ${config.remote.root}`,
-      `Profile     ${config.remote.profile}`,
       `Tracked     ${summary.trackedEntries} entries`,
       `Conflicts   ${summary.conflicts.length}`,
       `Deletions   ${summary.pendingDeletes.length} awaiting approval`,
@@ -43,9 +41,9 @@ export async function projectStatus(localRoot: string, json: boolean): Promise<v
       ...(summary.interruptedOperations.length > 0
         ? ["", `Recovery     ${summary.interruptedOperations.length} interrupted operation(s); next sync will fully reconcile`]
         : []),
-      ...(summary.conflicts.length > 0 ? ["", "Run `moose-proxy conflicts` to inspect unresolved paths."] : []),
+      ...(summary.conflicts.length > 0 ? ["", "Run `antler conflicts` to inspect unresolved paths."] : []),
       ...(summary.pendingDeletes.length > 0
-        ? ["Run `moose-proxy sync --approve-deletes` after reviewing them."]
+        ? ["Run `antler sync --approve-deletes` after reviewing them."]
         : []),
     ].join("\n") + "\n",
   );
@@ -63,7 +61,7 @@ export async function listConflicts(localRoot: string, json: boolean): Promise<v
     for (const conflict of conflicts) {
       process.stdout.write(`⚠ ${conflict.path}  ${conflict.reason}\n`);
     }
-    process.stdout.write("\nResolve with `moose-proxy resolve <path> --take local|remote`.\n");
+    process.stdout.write("\nResolve with `antler resolve <path> --take local|remote`.\n");
   }
 }
 

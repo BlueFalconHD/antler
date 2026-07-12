@@ -3,36 +3,33 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { authenticateCodeServer } from "../../src/auth/codeServerAuth.js";
-import { compatibilityProfiles, type CompatibilityProfileName } from "../../src/compatibility/profiles.js";
 import { GitCheckpoints } from "../../src/git/checkpoints.js";
 import { RemoteAgentManager } from "../../src/remoteAgentManager.js";
+import { loadCodeServerPassword } from "../../src/secrets.js";
 import { LocalTree } from "../../src/sync/localTree.js";
 import { ObjectStore } from "../../src/sync/objectStore.js";
 import { RemoteTree } from "../../src/sync/remoteTree.js";
 import { StateStore } from "../../src/sync/stateStore.js";
 import { SyncEngine } from "../../src/sync/syncEngine.js";
 
-const url = process.env.MOOSE_PROXY_INTEGRATION_CODE_SERVER_URL;
-const passwordFile = process.env.MOOSE_PROXY_INTEGRATION_CODE_SERVER_PASSWORD_FILE;
-const baseRemoteRoot = process.env.MOOSE_PROXY_INTEGRATION_REMOTE_ROOT;
-const profileName = (process.env.MOOSE_PROXY_INTEGRATION_PROFILE ?? "custom-v69") as CompatibilityProfileName;
-if (!url || !passwordFile || !baseRemoteRoot || !(profileName in compatibilityProfiles)) {
+const url = process.env.ANTLER_INTEGRATION_CODE_SERVER_URL;
+const passwordFile = process.env.ANTLER_INTEGRATION_CODE_SERVER_PASSWORD_FILE;
+const baseRemoteRoot = process.env.ANTLER_INTEGRATION_REMOTE_ROOT;
+if (!url || !baseRemoteRoot) {
   throw new Error(
-    "MOOSE_PROXY_INTEGRATION_CODE_SERVER_URL, MOOSE_PROXY_INTEGRATION_CODE_SERVER_PASSWORD_FILE, " +
-    "MOOSE_PROXY_INTEGRATION_REMOTE_ROOT, and a valid MOOSE_PROXY_INTEGRATION_PROFILE are required",
+    "ANTLER_INTEGRATION_CODE_SERVER_URL and ANTLER_INTEGRATION_REMOTE_ROOT are required",
   );
 }
 
-const password = (await fs.readFile(passwordFile, "utf8")).replace(/\r?\n$/, "");
+const password = await loadCodeServerPassword(passwordFile);
 const session = await authenticateCodeServer({ baseUrl: new URL(url), password, rejectUnauthorized: true });
 const manager = new RemoteAgentManager({
   session,
-  profile: compatibilityProfiles[profileName],
   rejectUnauthorized: true,
   sendOrigin: true,
 });
-const localRoot = await fs.mkdtemp(path.join(os.tmpdir(), "moose-sync-smoke-"));
-const remoteRoot = path.posix.join(baseRemoteRoot, `.moose-proxy-sync-smoke-${randomUUID()}`);
+const localRoot = await fs.mkdtemp(path.join(os.tmpdir(), "antler-sync-smoke-"));
+const remoteRoot = path.posix.join(baseRemoteRoot, `.antler-sync-smoke-${randomUUID()}`);
 
 try {
   const { client } = await manager.get();
@@ -40,7 +37,7 @@ try {
   const local = new LocalTree({ root: localRoot });
   const remote = new RemoteTree({ manager, root: remoteRoot, concurrency: 4 });
   await Promise.all([local.initialize(), remote.initialize()]);
-  const stateDirectory = path.join(localRoot, ".moose_proxy");
+  const stateDirectory = path.join(localRoot, ".antler");
   const state = new StateStore(stateDirectory);
   await state.initialize("integration");
   const git = new GitCheckpoints(localRoot, stateDirectory, false);

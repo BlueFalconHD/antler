@@ -1,27 +1,21 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { authenticateCodeServer } from "../auth/codeServerAuth.js";
-import {
-  compatibilityProfiles,
-  type CompatibilityProfileName,
-} from "../compatibility/profiles.js";
+import { LEGITIMOOSE_COMPATIBILITY } from "../compatibility/legitimoose.js";
 import { Logger } from "../logging.js";
 import {
-  configPath,
   createProjectConfig,
   parseConnectionUrl,
-  profileForCommit,
   saveProjectConfig,
 } from "../projectConfig.js";
 import { loadCodeServerPassword, promptText } from "../secrets.js";
-import { STATE_DIRECTORY_NAME } from "../sync/paths.js";
+import { LEGACY_STATE_DIRECTORY_NAME, STATE_DIRECTORY_NAME } from "../sync/paths.js";
 import { StateStore } from "../sync/stateStore.js";
 import { openConfiguredRuntime } from "./runtime.js";
 
 export interface InitOptions {
   readonly url?: string;
   readonly remoteRoot?: string;
-  readonly profile?: CompatibilityProfileName;
   readonly passwordFile?: string;
   readonly insecureSkipTlsVerify?: boolean;
   readonly omitOrigin?: boolean;
@@ -36,11 +30,13 @@ export async function initializeProject(directory: string, options: InitOptions,
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
     throw new Error("Local project must be a non-symlink directory");
   }
-  try {
-    await fs.lstat(configPath(localRoot));
-    throw new Error(`${localRoot} is already initialized; run moose-proxy status`);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  for (const stateName of [STATE_DIRECTORY_NAME, LEGACY_STATE_DIRECTORY_NAME]) {
+    try {
+      await fs.lstat(path.join(localRoot, stateName));
+      throw new Error(`${localRoot} already contains Antler state; run antler status`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 
   const rawUrl = options.url ?? await promptText("Paste the code-server URL");
@@ -50,7 +46,7 @@ export async function initializeProject(directory: string, options: InitOptions,
   const rejectUnauthorized = !options.insecureSkipTlsVerify;
   if (!rejectUnauthorized) logger.warn("TLS certificate verification is disabled for this project");
 
-  logger.info("Checking authentication and compatibility", { origin: parsed.baseUrl.origin });
+  logger.info("Checking Legitimoose authentication and protocol identity", { origin: parsed.baseUrl.origin });
   const probeSession = await authenticateCodeServer({ baseUrl: parsed.baseUrl, password, rejectUnauthorized });
   let remoteCommit: string;
   try {
@@ -58,24 +54,17 @@ export async function initializeProject(directory: string, options: InitOptions,
   } finally {
     await probeSession.close();
   }
-  const detectedProfile = profileForCommit(remoteCommit);
-  const profileName = options.profile ?? detectedProfile;
-  if (!profileName) {
+  if (remoteCommit !== LEGITIMOOSE_COMPATIBILITY.productCommit && !options.allowVersionMismatch) {
     throw new Error(
-      `The remote commit ${remoteCommit || "(empty)"} is not in the compatibility matrix. ` +
-      "Choose --profile only after verifying its protocol behavior.",
+      `Legitimoose ${LEGITIMOOSE_COMPATIBILITY.serverVersion} expects ` +
+      `${LEGITIMOOSE_COMPATIBILITY.productCommit}, but the server reports ${remoteCommit || "(empty)"}`,
     );
   }
-  const profile = compatibilityProfiles[profileName];
-  if (remoteCommit !== profile.productCommit && !options.allowVersionMismatch) {
-    throw new Error(`Selected profile ${profileName} expects ${profile.productCommit}, but the server reports ${remoteCommit}`);
-  }
-  logger.success(`Detected ${profileName}`, { commit: remoteCommit });
+  logger.success(`Detected Legitimoose ${LEGITIMOOSE_COMPATIBILITY.serverVersion}`, { commit: remoteCommit });
 
   const config = createProjectConfig({
     url: parsed.baseUrl,
     remoteRoot,
-    profile: profileName,
     ...(options.passwordFile ? { passwordFile: options.passwordFile } : {}),
     rejectUnauthorized,
     sendOrigin: !options.omitOrigin,
@@ -98,10 +87,10 @@ export async function initializeProject(directory: string, options: InitOptions,
     });
     if (result.conflicts > 0) {
       logger.warn("Differing files were preserved on both sides", {
-        next: "moose-proxy conflicts",
+        next: "antler conflicts",
       });
     }
-    logger.info("Start live synchronization with: moose-proxy start", { localRoot });
+    logger.info("Start live synchronization with: antler start", { localRoot });
   } finally {
     await runtime.close();
   }

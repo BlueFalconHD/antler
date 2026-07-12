@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { isHardExcluded, localPath, normalizeRelativePath } from "./paths.js";
+import { isHardExcluded, localPath, normalizeRelativePath, TEMPORARY_FILE_PREFIX } from "./paths.js";
 import type { TreeEndpoint, TreeEntry } from "./types.js";
 
 export interface LocalTreeOptions {
@@ -122,7 +122,7 @@ export class LocalTree implements TreeEndpoint {
         throw error;
       }
     }
-    const temporary = path.join(path.dirname(destination), `.moose_proxy-tmp-${randomUUID()}`);
+    const temporary = path.join(path.dirname(destination), `${TEMPORARY_FILE_PREFIX}${randomUUID()}`);
     const handle = await fs.open(temporary, "wx", mode);
     try {
       await handle.writeFile(content);

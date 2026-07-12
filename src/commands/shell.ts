@@ -13,12 +13,11 @@ export async function startProjectShell(
   color: boolean,
 ): Promise<void> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error("moose-proxy sh requires an interactive terminal; use individual commands in scripts");
+    throw new Error("antler sh requires an interactive terminal; use individual commands in scripts");
   }
   const runtime = await openProjectRuntime(localRoot, logger, { ...(passwordFile ? { passwordFile } : {}) });
   try {
     logger.success("Authenticated shell ready", {
-      profile: runtime.config.remote.profile,
       remoteRoot: runtime.config.remote.root,
     });
     process.stdout.write("One login, one remote session. Type `help` for commands.\n\n");
@@ -114,7 +113,6 @@ async function showStatus(runtime: ProjectRuntime, localRoot: string, write: Wri
   write([
     `Local       ${localRoot}`,
     `Remote      ${runtime.config.remote.root}`,
-    `Profile     ${runtime.config.remote.profile}`,
     `Tracked     ${Object.keys(state.entries).length} entries`,
     `Conflicts   ${conflicts}`,
     `Deletions   ${deletions} awaiting approval`,
@@ -157,7 +155,7 @@ async function runDoctor(runtime: ProjectRuntime, logger: Logger): Promise<void>
     runtime.config.remote.root,
     () => undefined,
     (error) => logger.warn("Remote watcher reported an error", { error }),
-    ["**/.git/**", "**/.moose_proxy/**"],
+    ["**/.git/**", "**/.antler/**", "**/.moose_proxy/**"],
   );
   await watch.dispose();
   logger.success("Remote file-change subscription is available");
@@ -167,5 +165,5 @@ async function runDoctor(runtime: ProjectRuntime, logger: Logger): Promise<void>
 }
 
 function shellPrompt(color: boolean): string {
-  return color && !("NO_COLOR" in process.env) ? "\u001b[36mmoose-proxy\u001b[0m › " : "moose-proxy > ";
+  return color && !("NO_COLOR" in process.env) ? "\u001b[36mantler\u001b[0m › " : "antler > ";
 }

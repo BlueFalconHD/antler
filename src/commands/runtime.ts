@@ -1,6 +1,6 @@
 import path from "node:path";
 import { authenticateCodeServer, type CodeServerSession } from "../auth/codeServerAuth.js";
-import { compatibilityProfiles } from "../compatibility/profiles.js";
+import { LEGITIMOOSE_COMPATIBILITY } from "../compatibility/legitimoose.js";
 import { GitCheckpoints, type GitStatus } from "../git/checkpoints.js";
 import { Logger } from "../logging.js";
 import { loadProjectConfig, type ProjectConfig } from "../projectConfig.js";
@@ -59,21 +59,18 @@ export async function openConfiguredRuntime(
     rejectUnauthorized: config.remote.rejectUnauthorized,
   });
   const remoteVersion = await session.probeVersion();
-  const profile = compatibilityProfiles[config.remote.profile];
-  if (remoteVersion !== profile.productCommit && !config.remote.allowVersionMismatch) {
+  if (remoteVersion !== LEGITIMOOSE_COMPATIBILITY.productCommit && !config.remote.allowVersionMismatch) {
     await session.close();
     throw new Error(
-      `Remote commit ${remoteVersion || "(empty)"} does not match ${profile.productCommit}. ` +
-      "Run doctor after selecting the correct compatibility profile.",
+      `Remote commit ${remoteVersion || "(empty)"} does not match Legitimoose ` +
+      `${LEGITIMOOSE_COMPATIBILITY.serverVersion} (${LEGITIMOOSE_COMPATIBILITY.productCommit}).`,
     );
   }
-  logger.success(`Connected to code-server ${profile.codeServerVersion}`, {
-    profile: profile.name,
+  logger.success(`Connected to Legitimoose ${LEGITIMOOSE_COMPATIBILITY.serverVersion}`, {
     commit: remoteVersion,
   });
   const manager = new RemoteAgentManager({
     session,
-    profile,
     rejectUnauthorized: config.remote.rejectUnauthorized,
     sendOrigin: config.remote.sendOrigin,
   });

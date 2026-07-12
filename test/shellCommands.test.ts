@@ -13,9 +13,9 @@ describe("interactive shell tokenizer", () => {
       "--take",
       "remote",
     ]);
-    expect(tokenizeShellLine("restore 'refs/moose/check point' path\\ with\\ spaces.txt")).toEqual([
+    expect(tokenizeShellLine("restore 'refs/antler/check point' path\\ with\\ spaces.txt")).toEqual([
       "restore",
-      "refs/moose/check point",
+      "refs/antler/check point",
       "path with spaces.txt",
     ]);
     expect(tokenizeShellLine("sync $(touch nope)")).toEqual(["sync", "$(touch", "nope)"]);
@@ -46,9 +46,9 @@ describe("interactive shell command parsing", () => {
       path: "data/my file.json",
       take: "local",
     });
-    expect(parseShellCommand('restore refs/moose-proxy/checkpoints/example "data/my file.json"')).toEqual({
+    expect(parseShellCommand('restore refs/antler/checkpoints/example "data/my file.json"')).toEqual({
       type: "restore",
-      checkpoint: "refs/moose-proxy/checkpoints/example",
+      checkpoint: "refs/antler/checkpoints/example",
       path: "data/my file.json",
     });
   });
@@ -79,7 +79,7 @@ describe("interactive shell dispatch", () => {
       transferredBytes: 12,
     });
     const runtime = {
-      config: { remote: { root: "/srv/project", profile: "public-v4.20.1" } },
+      config: { remote: { root: "/srv/project" } },
       engine: { reconcile },
     } as unknown as ProjectRuntime;
     const logger = new Logger("error", { format: "plain", color: false });

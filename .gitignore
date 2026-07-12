@@ -2,6 +2,8 @@ dist/
 node_modules/
 reference/upstream/
 *.log
+*.bun-build
 .DS_Store
 .SRProject.plist
+.antler/
 .moose_proxy/

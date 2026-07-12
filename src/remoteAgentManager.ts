@@ -1,12 +1,10 @@
 import { EventEmitter } from "node:events";
 import type { CodeServerSession } from "./auth/codeServerAuth.js";
-import type { CompatibilityProfile } from "./compatibility/profiles.js";
 import { connectRemoteAgent, type RemoteAgentConnection } from "./vscode/handshake.js";
 import { RemoteFileSystemClient } from "./vscode/remoteFileSystem.js";
 
 export interface RemoteAgentManagerOptions {
   readonly session: CodeServerSession;
-  readonly profile: CompatibilityProfile;
   readonly rejectUnauthorized: boolean;
   readonly sendOrigin: boolean;
   readonly connector?: typeof connectRemoteAgent;
@@ -70,7 +68,6 @@ export class RemoteAgentManager extends EventEmitter {
     const client = new RemoteFileSystemClient(
       connection.ipc,
       connection.remoteAuthority,
-      this.options.profile.writePreservingOpenOptions,
     );
     this.connection = connection;
     this.client = client;

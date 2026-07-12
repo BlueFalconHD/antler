@@ -9,7 +9,7 @@ export async function doctorProject(localRoot: string, passwordFile: string | un
       runtime.config.remote.root,
       () => undefined,
       (error) => logger.warn("Remote watcher reported an error", { error }),
-      ["**/.git/**", "**/.moose_proxy/**"],
+      ["**/.git/**", "**/.antler/**", "**/.moose_proxy/**"],
     );
     await watch.dispose();
     logger.success("Remote file-change subscription is available");

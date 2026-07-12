@@ -2,7 +2,7 @@ import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import type { RemoteAgentManager } from "../remoteAgentManager.js";
 import type { RemoteWatch } from "../vscode/remoteFileSystem.js";
-import { isHardExcluded, normalizeRelativePath, relativeRemotePath } from "./paths.js";
+import { isHardExcluded, isTemporaryName, normalizeRelativePath, relativeRemotePath } from "./paths.js";
 
 export interface ChangeWatcher {
   close(): Promise<void>;
@@ -22,7 +22,7 @@ export function localWatchPath(root: string, rawName: string | Buffer): string |
       throw new Error("Local watcher path escapes the configured root");
     }
   }
-  if (path.basename(relative).startsWith(".moose_proxy-tmp-")) return undefined;
+  if (isTemporaryName(path.basename(relative))) return undefined;
   const normalized = normalizeRelativePath(relative.split(path.sep).join("/"));
   return normalized || undefined;
 }
@@ -86,7 +86,7 @@ export async function watchRemote(
       }
     },
     onError,
-    ["**/.git/**", "**/.moose_proxy/**", "**/.moose_proxy-tmp-*"],
+    ["**/.git/**", "**/.antler/**", "**/.antler-tmp-*", "**/.moose_proxy/**", "**/.moose_proxy-tmp-*"],
   );
   return { close: () => remoteWatch.dispose() };
 }

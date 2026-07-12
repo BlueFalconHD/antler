@@ -12,6 +12,7 @@ describe("local tree", () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "moose-local-"));
     roots.push(root);
     await fs.mkdir(path.join(root, ".git"));
+    await fs.mkdir(path.join(root, ".antler"));
     await fs.mkdir(path.join(root, ".moose_proxy"));
     const tree = new LocalTree({ root });
     await tree.initialize();

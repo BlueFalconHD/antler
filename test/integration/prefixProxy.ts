@@ -1,11 +1,11 @@
 import http from "node:http";
 import net from "node:net";
 
-const listenHost = process.env.MOOSE_PROXY_PREFIX_LISTEN_HOST ?? "127.0.0.1";
-const listenPort = Number(process.env.MOOSE_PROXY_PREFIX_LISTEN_PORT ?? "39081");
-const targetHost = process.env.MOOSE_PROXY_PREFIX_TARGET_HOST ?? "127.0.0.1";
-const targetPort = Number(process.env.MOOSE_PROXY_PREFIX_TARGET_PORT ?? "39080");
-const prefix = (process.env.MOOSE_PROXY_PREFIX_PATH ?? "/prefix").replace(/\/+$/, "");
+const listenHost = process.env.ANTLER_PREFIX_LISTEN_HOST ?? "127.0.0.1";
+const listenPort = Number(process.env.ANTLER_PREFIX_LISTEN_PORT ?? "39081");
+const targetHost = process.env.ANTLER_PREFIX_TARGET_HOST ?? "127.0.0.1";
+const targetPort = Number(process.env.ANTLER_PREFIX_TARGET_PORT ?? "39080");
+const prefix = (process.env.ANTLER_PREFIX_PATH ?? "/prefix").replace(/\/+$/, "");
 
 function stripPrefix(url: string): string {
   if (url === prefix) {
