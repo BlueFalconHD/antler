@@ -2,7 +2,13 @@ import { watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import type { RemoteAgentManager } from "../remoteAgentManager.js";
 import type { RemoteWatch } from "../vscode/remoteFileSystem.js";
-import { isHardExcluded, isTemporaryName, normalizeRelativePath, relativeRemotePath } from "./paths.js";
+import {
+  isHardExcluded,
+  isLocalPathInside,
+  isTemporaryName,
+  normalizeLocalRelativePath,
+  relativeRemotePath,
+} from "./paths.js";
 
 export interface ChangeWatcher {
   close(): Promise<void>;
@@ -10,20 +16,27 @@ export interface ChangeWatcher {
 
 export type LocalWatchErrorSource = "event" | "watcher";
 
-export function localWatchPath(root: string, rawName: string | Buffer): string | undefined {
+export function localWatchPath(
+  root: string,
+  rawName: string | Buffer,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
   const rawPath = Buffer.isBuffer(rawName) ? rawName.toString("utf8") : rawName;
   // Filter reserved components before normalizing. macOS recursive watchers
   // can report either root-relative or absolute names depending on the event.
   if (isHardExcluded(rawPath)) return undefined;
+  const implementation = platform === "win32" ? path.win32 : path.posix;
   let relative = rawPath;
-  if (path.isAbsolute(rawPath)) {
-    relative = path.relative(path.resolve(root), path.resolve(rawPath));
-    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+  if (implementation.isAbsolute(rawPath)) {
+    const resolvedRoot = implementation.resolve(root);
+    const resolvedPath = implementation.resolve(rawPath);
+    if (!isLocalPathInside(resolvedRoot, resolvedPath, platform)) {
       throw new Error("Local watcher path escapes the configured root");
     }
+    relative = implementation.relative(resolvedRoot, resolvedPath);
   }
-  if (isTemporaryName(path.basename(relative))) return undefined;
-  const normalized = normalizeRelativePath(relative.split(path.sep).join("/"));
+  if (isTemporaryName(implementation.basename(relative))) return undefined;
+  const normalized = normalizeLocalRelativePath(relative.split(implementation.sep).join("/"), platform);
   return normalized || undefined;
 }
 

@@ -23,7 +23,8 @@
   "scripts": {
     "prebuild": "bun scripts/clean.mjs",
     "build": "tsc -p tsconfig.build.json",
-    "build:exe": "bun build src/index.ts --compile --minify --sourcemap --bytecode --no-compile-autoload-dotenv --no-compile-autoload-bunfig --outfile dist/antler",
+    "build:exe": "bun scripts/build-executable.mjs",
+    "build:exe:windows": "bun scripts/build-executable.mjs bun-windows-x64",
     "check": "bun run typecheck && bun run lint && bun run test && bun run build && bun run build:exe",
     "dev": "bun --watch src/index.ts",
     "lint": "eslint .",

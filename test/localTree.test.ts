@@ -25,7 +25,7 @@ describe("local tree", () => {
   it("refuses symlinks in the scanned tree", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "moose-local-"));
     roots.push(root);
-    await fs.symlink(os.tmpdir(), path.join(root, "escape"));
+    await fs.symlink(os.tmpdir(), path.join(root, "escape"), process.platform === "win32" ? "junction" : "dir");
     const tree = new LocalTree({ root });
     await tree.initialize();
     await expect(tree.scan()).rejects.toThrow(/Symbolic links/);

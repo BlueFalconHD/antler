@@ -33,4 +33,20 @@ describe("local watcher path handling", () => {
     "continues to reject malformed ordinary paths: %s",
     (candidate) => expect(() => localWatchPath(root, candidate)).toThrow(),
   );
+
+  it("normalizes Windows watcher names and drive-letter casing", () => {
+    const windowsRoot = "C:\\Users\\Moose\\Pack";
+    expect(localWatchPath(windowsRoot, "data\\example.json", "win32")).toBe("data/example.json");
+    expect(localWatchPath(windowsRoot, "c:\\users\\moose\\pack\\data\\example.json", "win32"))
+      .toBe("data/example.json");
+    expect(localWatchPath(windowsRoot, "C:\\Users\\Moose\\Pack\\.antler\\state.json", "win32"))
+      .toBeUndefined();
+  });
+
+  it("rejects Windows watcher paths outside the root", () => {
+    const windowsRoot = "C:\\Users\\Moose\\Pack";
+    expect(() => localWatchPath(windowsRoot, "D:\\Other\\example.json", "win32")).toThrow(/escapes/);
+    expect(() => localWatchPath(windowsRoot, "C:\\Users\\Moose\\Other\\example.json", "win32"))
+      .toThrow(/escapes/);
+  });
 });

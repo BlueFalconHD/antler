@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { normalizeRelativePath } from "../sync/paths.js";
+import { normalizeLocalRelativePath, sameLocalPath } from "../sync/paths.js";
 
 const CHECKPOINT_PREFIX = "refs/antler/checkpoints/";
 const LEGACY_CHECKPOINT_PREFIX = "refs/moose-proxy/checkpoints/";
@@ -44,7 +44,8 @@ export class GitCheckpoints {
       return { available: false, reason: "local directory is not a Git repository" };
     }
     this.repositoryRoot = await fs.realpath(path.resolve(top.stdout.trim()));
-    if (this.repositoryRoot !== await fs.realpath(path.resolve(this.localRoot))) {
+    const canonicalLocalRoot = await fs.realpath(path.resolve(this.localRoot));
+    if (!sameLocalPath(this.repositoryRoot, canonicalLocalRoot)) {
       return { available: false, reason: "checkpoints require the sync root to be the Git repository root" };
     }
     await this.excludeStateDirectory();
@@ -133,7 +134,7 @@ export class GitCheckpoints {
     if (!reference.startsWith(CHECKPOINT_PREFIX) && !reference.startsWith(LEGACY_CHECKPOINT_PREFIX)) {
       throw new Error(`Restore source must be a ${CHECKPOINT_PREFIX} reference`);
     }
-    const normalized = normalizeRelativePath(relativePath);
+    const normalized = normalizeLocalRelativePath(relativePath);
     if (!normalized) throw new Error("Restoring the entire sync root is not allowed");
     await mustGit(this.repositoryRoot, ["cat-file", "-e", `${reference}:${normalized}`]);
     const safety = await this.checkpoint(`before-restore-${normalized}`);

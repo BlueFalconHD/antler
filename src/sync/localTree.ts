@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { isHardExcluded, localPath, normalizeRelativePath, TEMPORARY_FILE_PREFIX } from "./paths.js";
+import {
+  isHardExcluded,
+  isLocalPathInside,
+  localPath,
+  normalizeLocalRelativePath,
+  TEMPORARY_FILE_PREFIX,
+} from "./paths.js";
 import type { TreeEndpoint, TreeEntry } from "./types.js";
 
 export interface LocalTreeOptions {
@@ -67,7 +73,7 @@ export class LocalTree implements TreeEndpoint {
 
   public async stat(relativePath: string): Promise<TreeEntry | undefined> {
     this.ensureInitialized();
-    const normalized = normalizeRelativePath(relativePath);
+    const normalized = normalizeLocalRelativePath(relativePath);
     const absolute = localPath(this.root, normalized);
     try {
       const stat = await fs.lstat(absolute);
@@ -78,7 +84,8 @@ export class LocalTree implements TreeEndpoint {
       if (!kind) {
         throw new Error(`Special filesystem entries are not synchronized: ${normalized}`);
       }
-      await this.verifyInsideRoot(absolute);
+      const canonical = await this.verifyInsideRoot(absolute);
+      this.assertMatchingCase(normalized, canonical);
       return {
         path: normalized,
         kind,
@@ -103,7 +110,7 @@ export class LocalTree implements TreeEndpoint {
   }
 
   public async writeFileAtomic(relativePath: string, content: Buffer): Promise<TreeEntry> {
-    const normalized = normalizeRelativePath(relativePath);
+    const normalized = normalizeLocalRelativePath(relativePath);
     if (!normalized) {
       throw new Error("Cannot replace the local sync root");
     }
@@ -116,6 +123,8 @@ export class LocalTree implements TreeEndpoint {
       if (existing.isSymbolicLink() || !existing.isFile()) {
         throw new Error(`Refusing to replace non-file local path: ${normalized}`);
       }
+      const canonical = await this.verifyInsideRoot(destination);
+      this.assertMatchingCase(normalized, canonical);
       mode = existing.mode & 0o777;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -147,7 +156,7 @@ export class LocalTree implements TreeEndpoint {
   }
 
   public async mkdir(relativePath: string): Promise<TreeEntry> {
-    const normalized = normalizeRelativePath(relativePath);
+    const normalized = normalizeLocalRelativePath(relativePath);
     if (!normalized) {
       const root = await this.stat("");
       if (!root) {
@@ -164,7 +173,7 @@ export class LocalTree implements TreeEndpoint {
   }
 
   public async delete(relativePath: string): Promise<void> {
-    const normalized = normalizeRelativePath(relativePath);
+    const normalized = normalizeLocalRelativePath(relativePath);
     if (!normalized) {
       throw new Error("Cannot delete the local sync root");
     }
@@ -181,8 +190,8 @@ export class LocalTree implements TreeEndpoint {
   }
 
   public async rename(sourcePath: string, destinationPath: string): Promise<TreeEntry> {
-    const source = normalizeRelativePath(sourcePath);
-    const destination = normalizeRelativePath(destinationPath);
+    const source = normalizeLocalRelativePath(sourcePath);
+    const destination = normalizeLocalRelativePath(destinationPath);
     if (!source || !destination) throw new Error("Cannot rename a sync root");
     const sourceEntry = await this.stat(source);
     if (!sourceEntry) throw new Error(`Local rename source is missing: ${source}`);
@@ -205,7 +214,8 @@ export class LocalTree implements TreeEndpoint {
 
   private async ensureDirectory(relativePath: string): Promise<void> {
     let current = this.root;
-    for (const piece of normalizeRelativePath(relativePath).split("/").filter(Boolean)) {
+    const normalized = normalizeLocalRelativePath(relativePath);
+    for (const piece of normalized.split("/").filter(Boolean)) {
       current = path.join(current, piece);
       try {
         const stat = await fs.lstat(current);
@@ -219,14 +229,23 @@ export class LocalTree implements TreeEndpoint {
         await fs.mkdir(current, { mode: 0o755 });
       }
     }
-    await this.verifyInsideRoot(current);
+    const canonical = await this.verifyInsideRoot(current);
+    this.assertMatchingCase(normalized, canonical);
   }
 
-  private async verifyInsideRoot(absolutePath: string): Promise<void> {
+  private async verifyInsideRoot(absolutePath: string): Promise<string> {
     const canonical = await fs.realpath(absolutePath);
-    const prefix = this.canonicalRoot.endsWith(path.sep) ? this.canonicalRoot : `${this.canonicalRoot}${path.sep}`;
-    if (canonical !== this.canonicalRoot && !canonical.startsWith(prefix)) {
+    if (!isLocalPathInside(this.canonicalRoot, canonical)) {
       throw new Error("Local path escapes through a symbolic link");
+    }
+    return canonical;
+  }
+
+  private assertMatchingCase(relativePath: string, canonicalPath: string): void {
+    if (process.platform !== "win32") return;
+    const actual = path.relative(this.canonicalRoot, canonicalPath).split(path.sep).join("/");
+    if (actual !== relativePath) {
+      throw new Error(`Local path casing differs from the synchronized path: ${relativePath}`);
     }
   }
 
