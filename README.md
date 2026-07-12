@@ -6,16 +6,22 @@ as normal. Antler transfers ones that chnage to your Legitimoose pack.
 
 ## Install
 
-```sh
+```text
 bun install
 bun run check
 bun run build:exe
+# macOS/Linux
 ./dist/antler --version
+# Windows PowerShell
+.\dist\antler.exe --version
 ```
 
-`dist/antler` is a [Bun standalone executable](https://bun.sh/docs/bundler/executables)
-containing Antler, its dependencies, and the Bun runtime. The destination
-machine needs neither Bun nor Node.js.
+To build the Windows x64 executable from macOS or Linux, run
+`bun run build:exe:windows`. The artifact is written to `dist/antler.exe`.
+
+`dist/antler` and `dist/antler.exe` are [Bun standalone executables](https://bun.sh/docs/bundler/executables)
+containing Antler, its dependencies, and the Bun runtime. Destination machines
+need neither Bun nor Node.js.
 
 `bun run build` also produces portable Node-compatible JavaScript at
 `dist/index.js` for development.
