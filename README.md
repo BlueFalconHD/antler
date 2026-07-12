@@ -1,3 +1,10 @@
+
+> [!NOTE]
+> This project is untested on Windows and Linux. Exercise caution
+> when using this, and report any bugs in the issues tab.
+>
+> Thanks <3
+
 # Antler
 
 Antler keeps a normal local datapack directory synchronized with its Legitimoose
