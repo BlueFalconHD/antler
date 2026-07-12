@@ -16,9 +16,9 @@ bun run build:exe
 .\dist\antler.exe --version
 ```
 
-Cross-build x64 executables with `bun run build:exe:linux` or
-`bun run build:exe:windows`. Artifacts are written to `dist/antler` and
-`dist/antler.exe`, respectively.
+Cross-build executables with `bun run build:exe:linux`, `bun run build:exe:windows`,
+`bun run build:exe:macos-arm64`, or `bun run build:exe:macos-x64`. Unix artifacts
+are written to `dist/antler`; the Windows artifact is written to `dist/antler.exe`.
 
 `dist/antler` and `dist/antler.exe` are [Bun standalone executables](https://bun.sh/docs/bundler/executables)
 containing Antler, its dependencies, and the Bun runtime. Destination machines
@@ -30,9 +30,9 @@ need neither Bun nor Node.js.
 ## Releases
 
 Pushing a tag that matches the package version, such as `v0.1.0`, runs the
-GitHub Actions release workflow. It tests Antler, builds Linux x64 and Windows
-x64 executables, publishes compressed artifacts and `SHA256SUMS` to a
-GitHub Release, and generates release notes.
+GitHub Actions release workflow. It tests Antler, builds Linux x64, Windows x64,
+macOS Apple Silicon, and macOS Intel executables, publishes compressed artifacts
+and `SHA256SUMS` to a GitHub Release, and generates release notes.
 
 ```sh
 git tag v0.1.0

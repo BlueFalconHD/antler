@@ -31,7 +31,7 @@ describe("local watcher path handling", () => {
 
   it.each(["../escape", "src\\ambiguous.txt", "bad\0name"])(
     "continues to reject malformed ordinary paths: %s",
-    (candidate) => expect(() => localWatchPath(root, candidate)).toThrow(),
+    (candidate) => expect(() => localWatchPath(root, candidate, "linux")).toThrow(),
   );
 
   it("normalizes Windows watcher names and drive-letter casing", () => {
