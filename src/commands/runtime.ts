@@ -39,7 +39,7 @@ export async function openProjectRuntime(
   const state = new StateStore(stateDirectory);
   const loadedState = await state.load();
   if (loadedState.projectId !== config.projectId) {
-    throw new Error("Project configuration and sync state identities do not match; no files were changed");
+    throw new Error("Project configuration and sync state identities do not match. No files were changed");
   }
   const password = await loadCodeServerPassword(options.passwordFile ?? config.remote.passwordFile);
   return openConfiguredRuntime(localRoot, config, state, password, logger);

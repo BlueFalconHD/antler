@@ -148,7 +148,7 @@ export async function findProjectRoot(start: string): Promise<string> {
     }
     const parent = path.dirname(current);
     if (parent === current) {
-      throw new Error("No .antler project found; run antler init first");
+      throw new Error("No .antler project found. Run antler init to create one");
     }
     current = parent;
   }

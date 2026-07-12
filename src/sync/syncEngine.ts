@@ -171,7 +171,7 @@ export class SyncEngine {
       this.options.remote.stat(normalized),
     ]);
     if (!sameFingerprint(local, conflict.local) || !sameFingerprint(remote, conflict.remote)) {
-      throw new Error("One side changed after this conflict was recorded; reconcile again before resolving it");
+      throw new Error("One side changed after this conflict was recorde. Reconcile again before resolving it");
     }
     if (!local || !remote || local.kind !== "file" || remote.kind !== "file") {
       throw new Error("Type and deletion conflicts require manual filesystem changes before resolution");

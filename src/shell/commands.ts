@@ -74,7 +74,7 @@ export function parseShellCommand(line: string): ShellCommand {
     case "init":
       throw new Error("init creates a project and cannot run inside an open project shell");
     case "start":
-      throw new Error("start is continuous; exit this shell and run `antler start`");
+      throw new Error("exit this shell and run `antler start` to begina continuous sync");
     default:
       throw new Error(`Unknown command: ${rawName}. Type \`help\` for available commands.`);
   }

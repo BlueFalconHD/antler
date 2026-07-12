@@ -47,7 +47,7 @@ export class RemoteAgentManager extends EventEmitter {
 
   public assertGeneration(generation: number): void {
     if (generation !== this.generation || !this.connection) {
-      throw new Error("remote connection was lost; handle is no longer valid");
+      throw new Error("remote connection was lost. Handle is no longer valid");
     }
   }
 

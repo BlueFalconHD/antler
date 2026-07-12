@@ -46,7 +46,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .argument("[directory]", "local project directory", ".")
     .option("--url <url>", "code-server base URL or the full browser /login?folder= URL")
     .option("--remote-root <path>", "remote project directory (inferred from a pasted login URL)")
-    .option("--password-file <path>", "0600 file containing the code-server password")
+    .option("--password-file <path>", "file containing the code-server password")
     .option("--insecure-skip-tls-verify", "DEVELOPMENT ONLY: disable TLS certificate verification")
     .option("--omit-origin", "omit the browser-equivalent WebSocket Origin header")
     .option("--allow-version-mismatch", "continue after an explicit Legitimoose version mismatch")
@@ -59,7 +59,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .command("start")
     .description("Watch both trees and synchronize changes until stopped")
     .argument("[directory]", "project directory or any child", ".")
-    .option("--password-file <path>", "override the configured 0600 password file")
+    .option("--password-file <path>", "override the configured password file")
     .action(async (directory: string, options: PasswordOptions) => {
       await startProject(await existingRoot(directory), options.passwordFile, loggerFor(program));
     });
@@ -68,7 +68,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .command("sh")
     .description("Open one authenticated interactive Antler control session")
     .argument("[directory]", "project directory or any child", ".")
-    .option("--password-file <path>", "override the configured 0600 password file")
+    .option("--password-file <path>", "override the configured password file")
     .action(async (directory: string, options: PasswordOptions) => {
       const global = program.opts<GlobalOptions>();
       await startProjectShell(await existingRoot(directory), options.passwordFile, loggerFor(program), global.color);
@@ -79,7 +79,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .alias("once")
     .description("Reconcile both trees once and exit")
     .argument("[directory]", "project directory or any child", ".")
-    .option("--password-file <path>", "override the configured 0600 password file")
+    .option("--password-file <path>", "override the configured password file")
     .option("--approve-deletes", "propagate reviewed one-sided deletions")
     .option("--force-large-delete", "override the delete-count circuit breaker")
     .action(async (directory: string, options: PasswordOptions & { approveDeletes?: boolean; forceLargeDelete?: boolean }) => {
@@ -108,7 +108,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .argument("<path>", "root-relative conflicted path")
     .argument("[directory]", "project directory or any child", ".")
     .requiredOption("--take <side>", "version to keep: local or remote")
-    .option("--password-file <path>", "override the configured 0600 password file")
+    .option("--password-file <path>", "override the configured password file")
     .action(async (conflictPath: string, directory: string, options: PasswordOptions & { take: string }) => {
       if (options.take !== "local" && options.take !== "remote") {
         throw new Error("--take must be local or remote");
@@ -145,7 +145,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .command("doctor")
     .description("Verify authentication, confinement, remote events, and tree access")
     .argument("[directory]", "project directory or any child", ".")
-    .option("--password-file <path>", "override the configured 0600 password file")
+    .option("--password-file <path>", "override the configured password file")
     .action(async (directory: string, options: PasswordOptions) => {
       await doctorProject(await existingRoot(directory), options.passwordFile, loggerFor(program));
     });

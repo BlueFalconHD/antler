@@ -124,7 +124,7 @@ export class SyncDaemon {
   }
 
   private readonly onDisconnect = (): void => {
-    this.options.logger.warn("Remote connection lost; local changes remain queued");
+    this.options.logger.warn("Remote connection lost. Local changes remain queued");
     this.fullRequested = true;
     void this.reconnect();
   };
@@ -132,14 +132,14 @@ export class SyncDaemon {
   private handleLocalWatcherError(error: Error, source: LocalWatchErrorSource): void {
     this.fullRequested = true;
     if (source === "event") {
-      this.options.logger.warn("Local watcher ignored a malformed event; full reconciliation requested", { error });
+      this.options.logger.warn("Local watcher ignored a malformed event. Reconciliation requested", { error });
       this.scheduleDrain();
       return;
     }
     if (this.localRestart) return;
-    this.options.logger.warn("Local watcher failed; restarting once", { error });
+    this.options.logger.warn("Local watcher failed. Restarting once", { error });
     void this.restartLocalWatcher().catch((restartError: unknown) => {
-      this.options.logger.error("Local watcher restart failed; periodic reconciliation remains active", {
+      this.options.logger.error("Local watcher restart failed. Periodic reconciliation remains active", {
         error: restartError,
       });
       this.scheduleDrain();
@@ -194,7 +194,7 @@ export class SyncDaemon {
         try {
           await this.options.manager.get();
           await this.installRemoteWatcher();
-          this.options.logger.success("Remote connection restored; verifying both trees");
+          this.options.logger.success("Remote connection restored. Verifying both trees");
           this.fullRequested = true;
           return;
         } catch (error) {

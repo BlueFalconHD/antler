@@ -45,7 +45,7 @@ export class StateStore {
       throw new Error(`Unable to read sync state safely: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (!isSyncState(parsed)) {
-      throw new Error("Sync state is malformed or uses an unsupported schema; no files were changed");
+      throw new Error("Sync state is malformed or uses an unsupported schema. No files were changed");
     }
     await this.loadJournal(parsed);
     this.state = parsed;
@@ -132,10 +132,10 @@ export class StateStore {
       try {
         value = JSON.parse(line);
       } catch {
-        throw new Error("Sync operation journal is malformed; no files were changed");
+        throw new Error("Sync operation journal is malformed. No files were changed");
       }
       if (!isJournalRecord(value)) {
-        throw new Error("Sync operation journal is malformed; no files were changed");
+        throw new Error("Sync operation journal is malformed. No files were changed");
       }
       (state.journal as Record<string, JournalRecord>)[value.id] = value;
     }

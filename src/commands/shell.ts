@@ -13,7 +13,7 @@ export async function startProjectShell(
   color: boolean,
 ): Promise<void> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error("antler sh requires an interactive terminal; use individual commands in scripts");
+    throw new Error("antler sh requires an interactive terminal. Use individual commands in scripts");
   }
   const runtime = await openProjectRuntime(localRoot, logger, { ...(passwordFile ? { passwordFile } : {}) });
   try {

@@ -137,7 +137,7 @@ export async function authenticateCodeServer(options: CodeServerSessionOptions):
   });
   if (!redirects.has(response.status)) {
     await response.body?.cancel();
-    throw new Error("code-server login failed; verify the URL and password");
+    throw new Error("code-server login failed. Verify the URL and password");
   }
   await response.body?.cancel();
 
