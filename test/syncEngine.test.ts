@@ -12,6 +12,7 @@ class MemoryTree implements TreeEndpoint {
   private clock = 1;
   private readonly values = new Map<string, { kind: "file" | "directory"; content?: Buffer; revision: number }>();
   public failNextWrite = false;
+  public failAfterWrite = false;
 
   public constructor(public readonly side: "local" | "remote") {}
 
@@ -39,6 +40,10 @@ class MemoryTree implements TreeEndpoint {
       throw new Error("injected write failure");
     }
     this.values.set(path, { kind: "file", content: Buffer.from(content), revision: this.clock++ });
+    if (this.failAfterWrite) {
+      this.failAfterWrite = false;
+      throw new Error("injected lost acknowledgement");
+    }
     return this.entry(path)!;
   }
   public async mkdir(path: string): Promise<TreeEntry> {
@@ -198,6 +203,23 @@ describe("bidirectional sync engine", () => {
     await engine.reconcile({ paths: ["nested/file.txt"] });
     expect((await remote.stat("nested"))?.kind).toBe("directory");
     expect(remote.text("nested/file.txt")).toBe("value");
+  });
+
+  it("reconciles an upload that succeeded before its acknowledgement was lost", async () => {
+    const local = new MemoryTree("local");
+    const remote = new MemoryTree("remote");
+    local.seedFile("file.txt", "base");
+    remote.seedFile("file.txt", "base");
+    const { engine, state } = await setup(local, remote);
+    await engine.reconcile();
+    local.seedFile("file.txt", "new value");
+    remote.failAfterWrite = true;
+    await expect(engine.reconcile({ paths: ["file.txt"] })).rejects.toThrow(/lost acknowledgement/);
+    expect(remote.text("file.txt")).toBe("new value");
+    expect(Object.keys(state.current().journal)).toHaveLength(1);
+    const recovered = await engine.reconcile();
+    expect(recovered.conflicts).toBe(0);
+    expect(Object.keys(state.current().journal)).toHaveLength(0);
   });
 
   it("coalesces concurrent inbound changes into one Git checkpoint", async () => {
