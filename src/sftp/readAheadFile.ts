@@ -3,7 +3,35 @@ import type { RemoteFileSystemClient } from "../vscode/remoteFileSystem.js";
 const READ_AHEAD_BYTES = 1024 * 1024;
 const MAX_CACHED_WINDOWS = 2;
 
-export class ReadAheadFile {
+export interface ReadableFile {
+  read(position: number, length: number): Promise<Buffer>;
+  close(): Promise<void>;
+}
+
+export class InMemoryReadFile implements ReadableFile {
+  private closed = false;
+
+  public constructor(private content: Buffer) {}
+
+  public async read(position: number, length: number): Promise<Buffer> {
+    this.ensureOpen();
+    validateRange(position, length);
+    return this.content.subarray(position, Math.min(position + length, this.content.length));
+  }
+
+  public async close(): Promise<void> {
+    this.closed = true;
+    this.content = Buffer.alloc(0);
+  }
+
+  private ensureOpen(): void {
+    if (this.closed) {
+      throw new Error("in-memory file is closed");
+    }
+  }
+}
+
+export class ReadAheadFile implements ReadableFile {
   private readonly windows = new Map<number, Promise<Buffer>>();
   private closed = false;
 
@@ -15,15 +43,7 @@ export class ReadAheadFile {
 
   public async read(position: number, length: number): Promise<Buffer> {
     this.ensureOpen();
-    if (
-      !Number.isSafeInteger(position) ||
-      position < 0 ||
-      !Number.isSafeInteger(length) ||
-      length < 0 ||
-      position > Number.MAX_SAFE_INTEGER - length
-    ) {
-      throw new Error("invalid read-ahead range");
-    }
+    validateRange(position, length);
     const end = Math.min(this.size, position + length);
     if (position >= end) {
       return Buffer.alloc(0);
@@ -108,5 +128,17 @@ export class ReadAheadFile {
     if (this.closed) {
       throw new Error("read-ahead file is closed");
     }
+  }
+}
+
+function validateRange(position: number, length: number): void {
+  if (
+    !Number.isSafeInteger(position) ||
+    position < 0 ||
+    !Number.isSafeInteger(length) ||
+    length < 0 ||
+    position > Number.MAX_SAFE_INTEGER - length
+  ) {
+    throw new Error("invalid buffered read range");
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ReadAheadFile } from "../src/sftp/readAheadFile.js";
+import { InMemoryReadFile, ReadAheadFile } from "../src/sftp/readAheadFile.js";
 import type { RemoteFileSystemClient } from "../src/vscode/remoteFileSystem.js";
 
 const WINDOW = 1024 * 1024;
@@ -25,6 +25,14 @@ class MemoryRemote {
 }
 
 describe("remote read-ahead", () => {
+  it("serves bulk-read content with offset semantics and releases it on close", async () => {
+    const file = new InMemoryReadFile(Buffer.from("0123456789"));
+    expect((await file.read(3, 4)).toString()).toBe("3456");
+    expect(await file.read(20, 4)).toHaveLength(0);
+    await file.close();
+    await expect(file.read(0, 1)).rejects.toThrow(/closed/);
+  });
+
   it("coalesces concurrent small reads in the same one-megabyte window", async () => {
     const data = Buffer.alloc(WINDOW, 0x61);
     const remote = new MemoryRemote(data);

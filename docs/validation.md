@@ -9,7 +9,7 @@ release under Rosetta on an arm64 Mac.
 ```text
 npm run typecheck  passed
 npm run lint       passed
-npm test           40 tests passed
+npm test           41 tests passed
 npm run build      passed
 npm audit          0 vulnerabilities
 ```
@@ -26,17 +26,17 @@ and valid/invalid SSH signatures.
 Confinement performance tests assert that startup checks every configured-root
 ancestor, ordinary operations check only in-root components, and listing a
 verified directory stats only each child. Read-ahead tests cover coalesced
-concurrent 32 KiB reads, window boundaries, partial remote reads, EOF, and
-cleanup.
+concurrent 32 KiB reads, bulk-read offset semantics, window boundaries, partial
+remote reads, EOF, and cleanup.
 
 `npm run test:integration:key-auth` also passed a real loopback SSH handshake
 using a generated Ed25519 client key and confirmed that the successful
 fingerprint was remembered. The same handshake opens an SFTP subsystem and
 verifies ForkLift's empty initial `REALPATH` resolves to virtual `/`, a
 one-entry listing makes only the parent and child stat calls, and three
-concurrent 32 KiB reads cause one remote read. Automatic discovery on the
-validation machine selected its existing `~/.ssh/id_ed25519.pub` identity
-without reading the private key.
+concurrent 32 KiB reads of a small file cause one `readFile` RPC. Automatic
+discovery on the validation machine selected its existing
+`~/.ssh/id_ed25519.pub` identity without reading the private key.
 
 Before optimization, an OpenSSH `pwd` plus `ls -la /` against the custom target
 took 4.44 seconds for only three entries. The optimized call graph reduces that

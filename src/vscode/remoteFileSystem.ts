@@ -54,6 +54,14 @@ export class RemoteFileSystemClient {
     return entries.map(([name, type]) => ({ name, type }));
   }
 
+  public async readFile(path: string): Promise<Buffer> {
+    const result = await this.call("readFile", [this.uri(path), undefined]);
+    if (!Buffer.isBuffer(result)) {
+      throw new Error("malformed remoteFilesystem readFile response");
+    }
+    return result;
+  }
+
   public async openRead(path: string): Promise<number> {
     return (await this.call("open", [this.uri(path), { create: false }])) as number;
   }

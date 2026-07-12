@@ -105,6 +105,15 @@ declaration either fails closed or could corrupt a temporary patch copy.
   require one remote metadata lookup per entry because VS Code 1.85.2 exposes
   no batched stat operation.
 
+## VS Code SFTP reports `isDate is not a function`
+
+Natizyskunk SFTP 1.16.3 bundles `ssh2` 1.13.0, which imports the removed
+`util.isDate` function. The exception occurs in the extension's `SFTP.open`
+before the bridge receives a request. Run `npm run patch:vscode-sftp-extension`
+from this repository, restart VS Code, and retry. The script makes an adjacent
+`.moose-proxy.bak` backup and refuses to change an unrecognized source file.
+An extension reinstall or update can restore the broken dependency.
+
 ## SFTP client reports unsupported
 
 The bridge supports conventional create mode 0644/0666 and directory mode

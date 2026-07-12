@@ -14,7 +14,7 @@ The public baseline is code-server 4.20.1 at
 - REALPATH, STAT, and LSTAT for non-symlink paths
 - directory open, paged listing, and close
 - concurrent file handles and offset reads
-- one-megabyte read-ahead windows that coalesce small pipelined client reads
+- one-RPC bulk reads up to one MiB, with read-ahead for larger files
 - create, upload, offset write, append, truncate, and close
 - merged changed-range tracking, unchanged-handle elision, and atomic partial
   patching when a compatibility profile exposes non-truncating write-open
@@ -147,6 +147,13 @@ Directory listings verify the configured root and requested parent once, then
 stat immediate children concurrently. Downloads coalesce small SFTP reads into
 one-megabyte remote reads. Use `--log-level debug` to emit operation names and
 durations without paths or file contents when diagnosing a slow client.
+
+Natizyskunk SFTP 1.16.3 bundles `ssh2` 1.13.0, whose removed `util.isDate`
+import crashes downloads on current VS Code extension hosts before an SFTP OPEN
+is sent. `npm run patch:vscode-sftp-extension` applies the upstream-compatible
+`util.types.isDate` import to the installed extension, keeps a `.moose-proxy.bak`
+copy, and requires a VS Code restart. Extension updates may require rerunning
+the patch until the extension upgrades its bundled `ssh2`.
 
 ## ForkLift
 

@@ -15,6 +15,7 @@
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
     "dev": "tsx src/index.ts",
     "lint": "eslint .",
+    "patch:vscode-sftp-extension": "node scripts/patch-vscode-sftp-extension.mjs",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:integration:sftp": "tsx test/integration/sftpSmoke.ts",

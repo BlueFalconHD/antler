@@ -17,7 +17,7 @@ import { stagedAttributes, symlinkListingAttributes, toAttributes, toFileEntry }
 import { SftpError, SFTP_STATUS, toSftpError } from "./errors.js";
 import { HandleTable, type SftpHandle } from "./handleTable.js";
 import { PathLockManager } from "./pathLocks.js";
-import { ReadAheadFile } from "./readAheadFile.js";
+import { InMemoryReadFile, ReadAheadFile } from "./readAheadFile.js";
 import { StagedFile } from "./stagedFile.js";
 import { matchAndVerifyClientKey, type LocalSftpAuthentication } from "./clientAuth.js";
 
@@ -26,6 +26,7 @@ const OPEN_MODE = utils.sftp.OPEN_MODE;
 const MAX_READ_BYTES = 1024 * 1024;
 const DIRECTORY_PAGE_SIZE = 100;
 const DIRECTORY_STAT_CONCURRENCY = 32;
+const BULK_READ_MAX_BYTES = 1024 * 1024;
 
 export interface SftpServerOptions {
   readonly bindAddress: string;
@@ -317,10 +318,13 @@ class SftpSubsystem {
     if ((flags & OPEN_MODE.WRITE) === 0) {
       const resolved = await confinement.existing(filename);
       requireRegularFile(resolved.stat!);
-      const remoteFd = await lease.client.openRead(resolved.remotePath);
+      const file =
+        resolved.stat!.size <= BULK_READ_MAX_BYTES
+          ? new InMemoryReadFile(await lease.client.readFile(resolved.remotePath))
+          : new ReadAheadFile(lease.client, await lease.client.openRead(resolved.remotePath), resolved.stat!.size);
       const handle = this.handles.add({
         kind: "read-file",
-        file: new ReadAheadFile(lease.client, remoteFd, resolved.stat!.size),
+        file,
         generation: lease.generation,
         path: resolved.remotePath,
         attrs: toAttributes(resolved.stat!),

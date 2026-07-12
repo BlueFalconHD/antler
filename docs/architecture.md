@@ -49,6 +49,7 @@ Code commit `8b3775030ed1a69b13e4f4c628c612102e30a681` (VS Code 1.85.2).
 | IPC type tags, initialization, request/response headers | VS Code `src/vs/base/parts/ipc/common/ipc.ts` |
 | Channel registration | VS Code `src/vs/server/node/serverServices.ts` |
 | Command dispatch and signatures | VS Code `src/vs/platform/files/node/diskFileSystemProviderServer.ts` |
+| Bulk `readFile`, streamed reads, and descriptor-read client paths | VS Code `src/vs/platform/files/common/diskFileSystemProviderClient.ts` |
 | `open`, `stat`, readdir, symlink, and error behavior | VS Code `src/vs/platform/files/node/diskFileSystemProvider.ts` |
 | `vscode-remote` to `file` URI transformation | VS Code `src/vs/workbench/api/node/uriTransformer.ts` |
 
@@ -132,11 +133,16 @@ avoids multiplying it:
   beneath it;
 - directory listing verifies its parent once and stats immediate children with
   bounded concurrency instead of rechecking every parent for every child;
-- read-only handles cache two one-megabyte read-ahead windows and coalesce
-  concurrent requests for the same window, while preserving offset reads and
-  EOF behavior;
+- read-only files up to one MiB use the same single-RPC `readFile` path as VS
+  Code; larger/random-access handles cache two one-megabyte read-ahead windows
+  and coalesce concurrent requests for the same window;
 - debug logs report the SFTP operation and elapsed milliseconds without file
   paths or contents.
+
+Pinned VS Code also uses the channel event `readFileStream` for large sequential
+files. The bridge does not yet implement IPC event subscriptions, so large SFTP
+files use descriptor reads with bounded read-ahead instead of pretending to
+support that event contract.
 
 ## Custom captured frame
 

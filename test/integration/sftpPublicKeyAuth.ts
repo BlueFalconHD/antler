@@ -14,6 +14,7 @@ const { utils } = ssh2;
 class FakeRemoteAgentManager extends EventEmitter {
   public readonly statCalls: string[] = [];
   public readCalls = 0;
+  public readFileCalls = 0;
   private readonly data = Buffer.alloc(256 * 1024, 0x64);
   private readonly client = {
     stat: async (remotePath: string) => {
@@ -24,6 +25,10 @@ class FakeRemoteAgentManager extends EventEmitter {
     },
     readdir: async () => [{ name: "file.bin", type: FileType.File }],
     openRead: async () => 1,
+    readFile: async () => {
+      this.readFileCalls += 1;
+      return this.data;
+    },
     read: async (_fd: number, position: number, length: number) => {
       this.readCalls += 1;
       return this.data.subarray(position, position + length);
@@ -119,14 +124,16 @@ try {
         }),
     ),
   );
-  if (manager.readCalls !== 1) {
-    throw new Error(`three small SFTP reads caused ${manager.readCalls} remote reads instead of one`);
+  if (manager.readFileCalls !== 1 || manager.readCalls !== 0) {
+    throw new Error(
+      `three small SFTP reads caused ${manager.readFileCalls} bulk reads and ${manager.readCalls} descriptor reads`,
+    );
   }
   await new Promise<void>((resolve, reject) => {
     sftp.close(handle, (error) => (error ? reject(error) : resolve()));
   });
   sftp.end();
-  process.stdout.write("SFTP authentication, optimized listing, and read-ahead smoke test passed\n");
+  process.stdout.write("SFTP authentication, optimized listing, and bulk-read smoke test passed\n");
 } finally {
   client.end();
   await server.stop();
