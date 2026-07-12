@@ -2,89 +2,87 @@
 
 ## Trust boundaries
 
-- The code-server TLS endpoint and its host operating system are trusted.
-- The local user running the bridge can read its process memory, secret files,
-  host key, and staging files.
-- SFTP clients are untrusted and are confined to the configured remote root.
-- Other processes already running on the remote host are trusted not to race
-  filesystem path components during an operation.
+- The configured code-server TLS endpoint and its remote operating system are
+  trusted.
+- The local user can read the local working tree, `.moose_proxy` recovery
+  objects, configured password file, and this process's memory.
+- Local and remote filesystem events are untrusted hints. Every path is parsed
+  and confined again before any operation.
+- Other processes on either filesystem are trusted not to replace a checked
+  directory component with a symlink during the small check/use race window.
 
-The last assumption is necessary because VS Code 1.85.2 `remoteFilesystem`
-does not expose `openat`, `O_NOFOLLOW`, `realpath`, or `readlink`. It cannot
-provide atomic race protection against an independently privileged remote
-process replacing a checked directory with a symlink. SFTP clients cannot
-create or traverse symlinks through this bridge.
+The final assumption exists because VS Code 1.85.2 `remoteFilesystem` does not
+provide `openat`, `O_NOFOLLOW`, `realpath`, or `readlink`. The daemon rejects
+every visible symlink but cannot make an atomic kernel-level guarantee against
+an independently privileged racing process.
 
-All ancestors of the configured root are checked when a remote-agent
-connection is initialized. Ordinary operations recheck the root and every
-component below it. A directory listing may reuse its just-verified parent
-while statting that parent's immediate children; this does not extend beyond a
-single operation and relies on the same trusted-remote-process assumption.
+## Path confinement
 
-## Confinement
+All stored paths are root-relative. Validation rejects:
 
-Every source and destination path is independently checked before URI creation:
+- absolute paths and drive-letter paths;
+- NUL, backslash, and `..` components;
+- `.git`, `.moose_proxy`, and internal temporary names at any depth;
+- paths outside the configured local or remote root;
+- symlinks and non-file/non-directory special entries.
 
-- the remote root must be an absolute POSIX path;
-- NUL, backslash, and any `..` segment are rejected before normalization;
-- SFTP absolute paths are interpreted only in the virtual namespace rooted at
-  `/`, never as remote host absolute paths;
-- the mapped path must equal the root or have the root plus `/` as its prefix;
-- every existing component from remote `/` through the final entry is statted;
-- any component with `FileType.SymbolicLink` is denied;
-- create operations permit only a missing final component;
-- rename applies the full check to both source and destination;
-- the configured root itself cannot be deleted, replaced, or renamed.
+The remote root must be an absolute POSIX directory other than `/`. Every
+ancestor from remote `/` through the configured root is statted at connection
+time and must be a real directory. Parent components are checked again before
+reads, writes, directory creation, and deletion. The local root and state
+directory must also be non-symlink directories.
 
-Symlinks are deliberately unusable, including links whose current target would
-remain within the root. The provider's stat follows links before reporting the
-symlink bit, so true LSTAT of a symlink cannot be provided without risking an
-out-of-root metadata read.
+The provider reports a symlink bit only after following in some cases, so the
+daemon deliberately refuses all symlink entries instead of attempting to
+support safe in-root links.
+
+## Data-loss defenses
+
+- First synchronization has no implicit winner.
+- Different common files and delete-versus-modify cases become conflicts.
+- Deletions require explicit approval and are protected by count/percentage
+  circuit breakers.
+- The last synchronized base content is retained in a SHA-256-addressed local
+  object store.
+- Inbound overwrites and local deletions require a Git checkpoint when Git
+  checkpointing is available.
+- Writes use unpredictable same-directory temporary files and atomic rename.
+- State is written to a temporary 0600 file, flushed, and atomically renamed.
+- Mutations are journaled before side effects. A nonempty journal forces a full
+  scan; uncertain operations are inspected rather than blindly replayed.
+- Watcher events are coalesced but never used as the sole source of truth.
+  Startup, reconnect, watcher errors, and periodic intervals trigger full
+  reconciliation.
+
+The state directory itself is hard-excluded in code, independent of ignore
+configuration. A missing or malformed state file fails closed.
 
 ## Credentials and transport
 
-- TLS verification defaults on. Insecure TLS requires a conspicuous explicit
-  flag and is logged.
-- The password login cookie is scoped by code-server's prefix-aware login flow.
-- Passwords and cookies are excluded from logs; no authorization data or file
-  contents are logged.
-- code-server password and cookie are never written by the bridge.
-- Password files must be protected regular files and cannot be symlinks.
-- The local SSH endpoint always requires authentication and uses a persistent
-  configurable host key.
-- With no explicit local authentication setting, discovery reads only public
-  identities from `ssh-add -L` and regular non-certificate `~/.ssh/*.pub`
-  files. The bridge never reads a discovered private key.
-- The selected key must prove possession through the SSH signature exchange.
-  Only its public SHA-256 fingerprint is persisted as the last successful
-  bridge identity. If it disappears, discovery falls back to the first current
-  agent identity or sorted public-key file.
-- Non-loopback binding is refused without explicit opt-in.
-- Only the VS Code management connection and `remoteFilesystem` calls are
-  implemented. Tunnel, extension-host, terminal, command, and extension APIs
-  are not exposed.
-- Capability-enabled partial patches copy only to an unpredictable temporary
-  name in the already-confined destination directory, verify that write-open
-  preserved its size, patch merged ranges, re-check confinement, and atomically
-  rename. Profiles without live evidence cannot enable this path.
+- TLS verification is on by default.
+- The password is accepted only from a hidden TTY prompt,
+  `MOOSE_PROXY_CODE_SERVER_PASSWORD`, or a protected regular file.
+- Password contents and the code-server session cookie remain in memory and
+  are never persisted.
+- The optional password-file path is non-secret and may be saved in config.
+- Prefix-aware login cookies, WebSocket Origin, product commit, and stable route
+  are matched to the pinned public implementation.
+- Logs redact credential/authorization fields and never contain file contents.
+- No local network listener exists.
+- Only management-channel `remoteFilesystem` calls and events are exposed.
 
-## Local staged data
+`--insecure-skip-tls-verify`, `--omit-origin`, and
+`--allow-version-mismatch` are explicit compatibility/development escape
+hatches saved in the project config. They should not be used to hide an
+unexplained production mismatch.
 
-Offset writes require local staging because upstream only offers truncating
-write-open. The staging directory must be a non-symlink directory without
-group/other permissions; files use mode 0600 and are removed on close, abort,
-session cleanup, or connection loss. Sudden process or machine failure can
-leave a local staging file or an unpredictable `.moose-proxy-*.tmp` file in the
-remote destination directory, so use an encrypted local volume when file
-content requires encryption at rest and remove abandoned temporary files after
-a crash.
+## Local recovery data
 
-Read-only handles retain at most two one-megabyte remote read-ahead windows in
-memory. They are cleared on close and discarded with the handle after
-connection loss.
+`.moose_proxy/objects` and `.moose_proxy/conflicts` can contain previous file
+contents. The directory is mode 0700 and files are 0600, but this is not
+encryption. Use an encrypted local volume if the project requires encryption
+at rest.
 
-## Unsupported behavior
-
-Unknown or unsupported requests return SFTP failure or OP_UNSUPPORTED. The
-bridge never returns success for chmod, chown, timestamp changes, link
-operations, extensions, recursive deletion, or overwriting SFTP RENAME.
+Temporary remote files use `.moose_proxy-tmp-<uuid>`. They are excluded from
+watch processing and removed on ordinary failure. A machine crash can leave
+one behind; it never replaces the original until the final rename succeeds.

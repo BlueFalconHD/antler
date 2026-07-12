@@ -1,7 +1,8 @@
 # Third-party notices
 
-Parts of `src/vscode/serialization.ts` and `src/vscode/persistentProtocol.ts`
-are adapted from Visual Studio Code at commit
+Parts of `src/vscode/serialization.ts`, `src/vscode/persistentProtocol.ts`, and
+the call/event wire constants in `src/vscode/ipcClient.ts` are adapted from or
+implemented directly against Visual Studio Code at commit
 `8b3775030ed1a69b13e4f4c628c612102e30a681`:
 
 - `src/vs/base/parts/ipc/common/ipc.ts`

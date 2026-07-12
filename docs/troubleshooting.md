@@ -1,122 +1,112 @@
 # Troubleshooting
 
+## No project is found
+
+Run `moose-proxy init <local-directory>` first. Commands search upward from the
+given directory for `.moose_proxy/config.json`, like Git searches for `.git`.
+Missing or malformed state never causes either tree to become authoritative.
+
 ## Authentication fails
 
-- Verify that `--code-server-url` is the public root users open in a browser,
-  including any reverse-proxy prefix.
-- A wrong password returns a rendered HTTP 200 login page. The bridge recognizes
-  this and reports login failure; avoid repeated attempts because code-server
-  rate-limits failures.
-- Confirm the password file is mode 0600 and is not a symlink.
-- A deployment using external SSO instead of code-server's password form is not
-  supported by this profile.
+- Paste the public browser URL, including its reverse-proxy prefix. A full
+  `/login?folder=...` URL is accepted by `init`.
+- Wrong passwords return the login HTML with HTTP 200; the CLI recognizes this
+  as failure. Avoid rapid retries because code-server rate-limits login errors.
+- A password file must be a non-symlink regular file with mode 0600 or stricter.
+- External SSO without code-server's password form is outside these profiles.
 
-## ForkLift or local SFTP authentication fails
+If an ephemeral instance changes its password, update the protected password
+file or omit `--password-file` and enter the new value when starting.
 
-- Check the startup `local SFTP authentication configured` record. In ForkLift,
-  choose SFTP, `127.0.0.1`, port `2222`, username `moose`, then click the key
-  icon in the Password field and select the logged `privateKeyHint` path.
-- The remembered identity is the last key that authenticated successfully to
-  this bridge; OpenSSH does not provide a trustworthy system-wide last-used-key
-  timestamp. If it is unavailable, the first `ssh-add -L` identity or first
-  sorted `~/.ssh/*.pub` file is selected.
-- Run `ssh-add -L` to confirm the agent exposes public identities. If no key is
-  available, run `ssh-keygen -t ed25519`, then
-  `ssh-add ~/.ssh/id_ed25519`.
-- Use `--sftp-authorized-key <public-key-path>` to override discovery. Use
-  `--sftp-password-file` or `MOOSE_PROXY_SFTP_PASSWORD` only when password
-  authentication is specifically desired.
-- ForkLift may initialize a favorite with an empty `REALPATH` when its Path
-  field is blank. Current builds accept that as virtual `/`; older builds log
-  `Malformed path`. Set Path to `/` or update and restart the bridge.
+## `/version` or handshake mismatch
 
-## `/version` mismatch
+Public v4.20.1 must return `e76afa4a...`; the VS Code gitlink
+`8b377503...` is not the product commit. Run `moose-proxy doctor` and select the
+matching profile. Use `--allow-version-mismatch` only while investigating a
+known development build.
 
-The response is the product commit used in both the WebSocket path and second
-handshake message. Public 4.20.1 must return `e76afa4a...`, not its VS Code
-gitlink `8b377503...`. Select the matching profile. Use
-`--allow-version-mismatch` only for protocol investigation.
+`Unauthorized client` usually means the target re-enabled a proprietary
+connection token or signing scheme not present in public code-server.
 
-## WebSocket routing or HTTP 404/403
+## WebSocket 404/403
 
-- Preserve the public path prefix in `--code-server-url`.
-- The proxy must forward WebSocket upgrades on
-  `<prefix>/stable-<productCommit>` and retain query parameters.
-- The bridge sends `skipWebSocketFrames=false`; changing it to true is
-  incompatible with the WebSocket transport.
-- If a proxy rewrites Host/Origin unexpectedly, first fix the proxy. For a
-  known non-browser-compatible proxy, `--omit-origin` uses code-server's
-  explicitly supported no-Origin path.
+- Preserve the deployment prefix from the browser URL.
+- The proxy must forward WebSocket upgrades and query parameters on
+  `<prefix>/stable-<productCommit>`.
+- `skipWebSocketFrames=false` is required.
+- Fix Host/Origin rewriting in the proxy first. `--omit-origin` exists only for
+  a known deployment that deliberately accepts missing Origin.
 
 ## TLS errors
 
-Install the issuing CA in the host trust store or use a certificate whose name
-matches the URL. `--insecure-skip-tls-verify` exists only for isolated
-development and should not be used for production credentials.
+Install the issuing CA or use a certificate matching the URL. The
+`--insecure-skip-tls-verify` init option is development-only and persists in
+project config so the insecure state remains visible.
 
-## Handshake rejection
+## A path is rejected
 
-- `version mismatch` means `/version`, the `stable-<commit>` route, and profile
-  commit do not agree.
-- `Unauthorized client` suggests the deployment re-enabled a VS Code connection
-  token or proprietary signing. This is outside the public profile.
-- Enable `--log-level debug`; logs contain stages and status but redact tokens,
-  cookies, passwords, authorization data, and contents.
+Symlinks are deliberately unsupported. On macOS, `/tmp` is a symlink to
+`/private/tmp`; configure the canonical path. Absolute event paths outside the
+root, backslashes, NUL, `..`, `.git`, and `.moose_proxy` are also denied.
 
-## Permission denied on a path
+## A file becomes a conflict
 
-The confinement policy rejects any symlink component, including `/tmp` on
-macOS (which points to `/private/tmp`). Configure the canonical non-symlink
-remote path, such as `/private/tmp/...`, or a normal project directory.
+Nothing has been overwritten. Inspect both local and remote versions, then:
 
-## Upload or truncate fails
+```sh
+moose-proxy resolve path/to/file --take local
+# or
+moose-proxy resolve path/to/file --take remote
+```
 
-- The local staging directory must be a private, non-symlink directory.
-- Ensure the local disk has enough space for the entire largest write-opened
-  file.
-- After an unclean process or machine crash, remove abandoned 0600 files from
-  the configured local staging directory and `.moose-proxy-*.tmp` files from
-  affected remote destination directories.
-- A connection loss invalidates an existing handle intentionally. Reopen it;
-  uncertain mutations are not replayed.
-- Concurrent bridge write handles to one path are serialized. An independent
-  remote process can still change the file and cause the close-time type/race
-  checks to fail.
+Resolution is refused if either fingerprint changed after conflict detection.
+The discarded bytes are saved beneath `.moose_proxy/conflicts/` before the
+chosen version is written.
 
-## Partial edit performs a full remote replacement
+Type conflicts and delete/modify conflicts require manually making both sides
+the same kind before resolving.
 
-Run `npm run test:integration:write-probe` with the three documented
-integration environment variables. `EBADF` for `create:false` and a size of
-zero after `create:true` means the provider has the stock VS Code 1.85.2
-limitation: it exposes no writable, non-truncating descriptor. The bridge still
-accepts offset SFTP writes, but safely commits the changed file through a full
-temporary replacement. Do not force-enable the profile capability; a false
-declaration either fails closed or could corrupt a temporary patch copy.
+## A deleted file remains on the other side
 
-## Browsing or downloads are slow
+This is the safe default. Review `moose-proxy status`, then run:
 
-- Upgrade and rebuild before measuring; older builds repeated every configured
-  root ancestor for every listed child and forwarded every small client READ as
-  a separate remote RPC.
-- Start with `--log-level debug`. Each completed request records `operation`
-  and `durationMs` without logging paths or contents.
-- For Natizyskunk SFTP, set `privateKeyPath`, leave `useTempFile` and `openSsh`
-  false, and use a moderate `concurrency` such as 8. Huge project syncs still
-  require one remote metadata lookup per entry because VS Code 1.85.2 exposes
-  no batched stat operation.
+```sh
+moose-proxy sync --approve-deletes
+```
 
-## VS Code SFTP reports `isDate is not a function`
+If the circuit breaker activates, verify the proposed scale before adding
+`--force-large-delete`. A branch checkout can legitimately produce a large
+batch, but an incorrect root can look identical; do not bypass the warning
+without checking.
 
-Natizyskunk SFTP 1.16.3 bundles `ssh2` 1.13.0, which imports the removed
-`util.isDate` function. The exception occurs in the extension's `SFTP.open`
-before the bridge receives a request. Run `npm run patch:vscode-sftp-extension`
-from this repository, restart VS Code, and retry. The script makes an adjacent
-`.moose-proxy.bak` backup and refuses to change an unrecognized source file.
-An extension reinstall or update can restore the broken dependency.
+## Remote updates are delayed
 
-## SFTP client reports unsupported
+Run `moose-proxy doctor` to verify that event subscription setup succeeds.
+Native VS Code watchers start asynchronously behind the watch RPC, so the
+daemon always installs the watcher before its startup reconciliation. Events
+remain hints: a 30-second full reconciliation recovers from a missed/coalesced
+event. Watcher errors and reconnects trigger an immediate full scan.
 
-The bridge supports conventional create mode 0644/0666 and directory mode
-0755/0777, which match the remote provider's default creation semantics.
-Arbitrary mode, owner, group, access time, modification time, link operations,
-and vendor extensions return OP_UNSUPPORTED.
+## Reconnect loop
+
+Local edits remain queued. The daemon reconnects with bounded exponential
+backoff, creates a new watcher session, and performs a full reconciliation
+before trusting subsequent events. Check the code-server lifetime, password,
+TLS certificate, prefix route, and `/version` value.
+
+## Interrupted operation is reported
+
+The journal means an operation lost a definitive completion point. Run
+`moose-proxy sync`; it performs a full comparison and converges based on actual
+content. Do not delete `state.json` to clear the warning.
+
+## Transfer is still large
+
+The daemon avoids all transfer when a file's content is unchanged and only
+examines paths that changed during steady state. VS Code 1.85.2 has no remote
+hash or delta-patch RPC, so a genuinely changed file is atomically uploaded or
+downloaded in full. This is a protocol limitation, not a disabled option.
+
+Large initial trees require one remote stat per entry because readdir returns
+names and types, not full metadata. Bounded concurrency prevents this from
+serializing every round trip.

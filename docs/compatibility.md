@@ -1,42 +1,34 @@
 # Compatibility matrix
 
-| Target | Product commit used for path/handshake | Protocol source | Runtime status | Preserving remote write-open |
-| --- | --- | --- | --- | --- |
-| code-server 4.20.1 | `e76afa4a2bf4667a3c9f71bf56ef34b8ad365fbe` | VS Code 1.85.2 `8b3775030ed1a69b13e4f4c628c612102e30a681` | Verified, including path prefix and OpenSSH SFTP | Unsupported |
-| Custom code-server 69.0.0 | `ebeb3c82ac91ac3e453356093435047ed911a179` | declares VS Code 1.85.2; public pinned source is the protocol authority | Verified live through a prefixed deployment with all required SFTP mutations | Unsupported by live probe |
+| Target | Product commit | Protocol authority | Live result |
+| --- | --- | --- | --- |
+| code-server 4.20.1 | `e76afa4a2bf4667a3c9f71bf56ef34b8ad365fbe` | VS Code 1.85.2 at `8b3775030ed1a69b13e4f4c628c612102e30a681` | Verified: auth, management WebSocket, watch event, both directions, conflict/resolve, nested upload, approved deletion |
+| Custom code-server 69.0.0 | `ebeb3c82ac91ac3e453356093435047ed911a179` | Declares VS Code 1.85.2; the public pinned source remains authoritative | Verified live through its URL prefix with the same complete sync smoke suite |
 
-The expected custom WebSocket root is
-`/stable-ebeb3c82ac91ac3e453356093435047ed911a179`, based on the public build
-pipeline. A normal run probes authenticated `/version` and refuses to continue
-if the deployment returns another product commit.
+The CLI authenticates `/version` and refuses an unexpected product commit by
+default. The product commit—not the VS Code gitlink—is used in the
+`/stable-<commit>` WebSocket route and second remote-agent handshake message.
 
-The custom login page was inspected before connecting. It adds deployment
-branding, a Minecraft-datapack usage notice, and a Cloudflare analytics script,
-but retains the standard relative POST form, hidden `base` and `href` fields,
-password field, prefix-scoped session cookie behavior, and authenticated
-bootstrap values. Authenticated `/version` returned the exact custom product
-commit. The bridge then completed the management handshake and every required
-SFTP mutation against the folder from the connection URL.
+The custom login page was inspected during the original compatibility work. It
+adds branding and deployment-specific text but retains the password form,
+hidden base/href values, prefix-scoped session cookie, and authenticated
+bootstrap contract. Its unpublished source was not available, so compatibility
+is claimed only for the exact live behavior tested.
 
-This establishes runtime compatibility for the tested behavior; it does not
-claim that unpublished custom source is byte-identical to public code-server.
+## Required protocol surface
 
-## Protocol-sensitive differences
-
-A target needs all of the following to match this profile:
+A compatible target must provide:
 
 - code-server password login and `code-server-session` cookie semantics;
-- outer WebSocket authentication with internal connection tokens disabled;
-- the pinned 13-byte persistent framing and IPC serializer;
-- OSS identity sign fallback or an equivalent accepted handshake;
-- management connection context compatible with VS Code 1.85.2;
-- the listed `remoteFilesystem` command signatures and error names.
+- prefix-correct authenticated WebSocket routing;
+- the pinned 13-byte persistent protocol and IPC serialization;
+- the OSS sign challenge and Management connection type;
+- `remoteFilesystem` stat, readdir, readFile, writeFile, mkdir, delete, rename,
+  watch, and unwatch contracts;
+- `fileChange` IPC events with VS Code 1.85.2 payloads.
 
-Use `--allow-version-mismatch` only while diagnosing a known development build;
-it cannot make incompatible framing or RPC contracts safe.
+No verified profile provides a safe rsync-like patch operation or writable
+non-truncating descriptor. Changed files therefore use full atomic replacement.
 
-The write-capability probe uses only disposable dotfiles under the configured
-remote root. A custom profile must not set `writePreservingOpenOptions` until
-that exact build has demonstrated a non-truncating writable descriptor. Extra
-option keys are not sufficient: the verified custom target ignored them and
-retained the stock read-only/truncating split.
+`--allow-version-mismatch` is for deliberate protocol investigation. It cannot
+make incompatible framing, URI transformation, or event contracts safe.

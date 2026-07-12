@@ -1,120 +1,101 @@
 # Validation record
 
-Validated on 2026-07-11/12 (America/Chicago) with Node 25.9.0 for the bridge,
-OpenSSH 10.2p1 for the client, and the official x86_64 macOS code-server 4.20.1
-release under Rosetta on an arm64 Mac.
+Validated on 2026-07-12 (America/Chicago) with Node 25.9.0 for moose-proxy.
 
 ## Automated checks
 
 ```text
 npm run typecheck  passed
 npm run lint       passed
-npm test           41 tests passed
+npm test           passed
 npm run build      passed
 npm audit          0 vulnerabilities
 ```
 
-The unit suite covers framing split/coalescing, serialization tags and large
-offsets, lexical traversal, separator ambiguity, symlink components, final-only
-create gaps, error mapping, concurrent handle identity/cleanup, connection
-generation invalidation, partial/offset staged writes, truncate, and abort. It
-also covers changed-range merging, atomic copy-and-patch selection for a
-capability-enabled profile, and zero-transfer close for an unchanged preserved
-handle. Local-authentication tests cover agent order, remembered identity,
-sorted public-key-file fallback, explicit overrides, missing-key instructions,
-and valid/invalid SSH signatures.
-Confinement performance tests assert that startup checks every configured-root
-ancestor, ordinary operations check only in-root components, and listing a
-verified directory stats only each child. Read-ahead tests cover coalesced
-concurrent 32 KiB reads, bulk-read offset semantics, window boundaries, partial
-remote reads, EOF, and cleanup.
+The unit suite covers:
 
-`npm run test:integration:key-auth` also passed a real loopback SSH handshake
-using a generated Ed25519 client key and confirmed that the successful
-fingerprint was remembered. The same handshake opens an SFTP subsystem and
-verifies ForkLift's empty initial `REALPATH` resolves to virtual `/`, a
-one-entry listing makes only the parent and child stat calls, and three
-concurrent 32 KiB reads of a small file cause one `readFile` RPC. Automatic
-discovery on the validation machine selected its existing
-`~/.ssh/id_ed25519.pub` identity without reading the private key.
+- split/coalesced persistent framing and IPC value serialization;
+- exact IPC EventListen/EventFire/EventDispose headers, shared ids, callback
+  isolation, and connection-loss cleanup;
+- watcher listener-before-watch ordering, payload validation, and idempotent
+  unwatch/disposal;
+- traversal, absolute paths, separator ambiguity, hard state/Git exclusions,
+  and remote watcher root confinement;
+- local atomic writes, state permissions, malformed/missing state failure, and
+  symlink rejection;
+- initial one-sided copies, identical baselines, mismatched-file conflicts,
+  both edit directions, simultaneous conflicts, deletion approval, journal
+  recovery, targeted nested-parent creation, unique renames in both directions,
+  and checkpoint coalescing;
+- real Git hidden-ref snapshots containing tracked/untracked changes without
+  changing HEAD, the current index, status, or working tree;
+- connection generation invalidation and reconnect-on-next-use.
 
-Before optimization, an OpenSSH `pwd` plus `ls -la /` against the custom target
-took 4.44 seconds for only three entries. The optimized call graph reduces that
-root listing from repeated full-root-prefix checks per child to one root stat,
-one readdir, and one concurrent stat per immediate child. A post-change live
-number requires restarting the user's currently running bridge.
-
-## Public code-server integration
+## Public code-server 4.20.1
 
 Runtime identity:
 
 ```text
 code-server 4.20.1 e76afa4a2bf4667a3c9f71bf56ef34b8ad365fbe
-Code 1.85.2
+VS Code 1.85.2 8b3775030ed1a69b13e4f4c628c612102e30a681
 ```
 
-The bridge successfully completed authentication, `/version`, the
-`/stable-e76afa4...` WebSocket upgrade, handshake, IPC initialization, and
-`remoteFilesystem` channel setup.
+The official architecture-neutral v4.20.1 release package was run with VS
+Code's pinned native Node 18.17.1 arm64 runtime. The full disposable sync smoke
+test passed:
 
-The same sequence and SFTP smoke suite passed through a reverse proxy at a
-public URL ending in `/prefix/`, validating prefix-scoped login cookies and
-WebSocket routing.
+- password authentication and `/version`;
+- stable-route WebSocket, sign challenge, Management connection, IPC init;
+- remote watcher subscription and observed file-change event;
+- local upload and remote download;
+- simultaneous-change conflict with both originals unchanged;
+- explicit local conflict resolution;
+- nested directory/file upload and hash-confirmed remote rename;
+- held deletion followed by explicit approved deletion;
+- recursive cleanup of the unique remote test directory.
 
-`npm run test:integration:sftp` passed remote create, staged read-after-write,
-non-truncating offset write, close/commit, download, FSETSTAT truncate, rename,
-delete, and rmdir.
+The native watcher starts asynchronously after the `watch` RPC. A test that
+wrote immediately after the RPC could miss its event. The production ordering
+(subscribe, then full reconcile, then accept live events) passed and is covered
+by the integration test.
 
-A live symlink inside the remote root pointing to an outside file was visible
-as a link in the listing, but STAT/open/download was rejected with SFTP
-PERMISSION_DENIED and no local output file was created.
+The built CLI was also exercised separately: a pasted
+`/login?folder=...&to=` URL initialized a project, `sync` uploaded a file,
+`status` reported its baseline, and a foreground `start` daemon observed both a
+local edit and an external remote edit. Idle state produced no self-triggered
+`.moose_proxy` event loop, and SIGINT shut down both watchers cleanly.
 
-## Custom code-server 69.0.0 integration
+## Custom code-server 69.0.0
 
-The provided prefixed deployment was inspected and tested live. Its branded
-login page retained the public login contract. Authenticated `/version`
-returned:
+Authenticated `/version` returned:
 
 ```text
 ebeb3c82ac91ac3e453356093435047ed911a179
 ```
 
-The bridge completed the custom stable-route WebSocket upgrade, Management
-handshake, IPC initialization, and `remoteFilesystem` setup for
-`/home/coder/project/datapack`. The disposable SFTP suite passed create,
-upload, unchanged `r+` close, staged read-after-write, offset write, truncate,
-download verification, rename, delete, and rmdir. Debug diagnostics confirmed
-that the unchanged handle transferred zero bytes and that a two-byte edit was
-identified as a two-byte changed range.
+The same disposable sync smoke suite passed through the supplied deployment
+prefix against `/home/coder/project/datapack`. This directly verifies the
+custom authentication flow, prefix routing, Management handshake, remote
+watcher event, upload/download, conflict preservation/resolution, nested
+creation, rename, approved deletion, and cleanup.
 
-The preserving-write probe tried `create:false` with `write`, `writable`, and
-`truncate:false`; all writes failed with `EBADF` while leaving the original ten
-bytes intact. Both tested `create:true` variants truncated to zero at open.
-This proves that partial remote patching cannot be activated safely for this
-build. Changed files use the atomic full-replacement fallback.
+No password or session cookie was written into the repository or sync state.
+The test password lived only in a protected temporary input file and was not
+logged.
 
-## OpenSSH end to end
+## Public fixture note
 
-The stock `sftp` client successfully performed:
+The official v4.20.1 macOS release provides only x86_64. Its watcher was first
+tested under Rosetta and behaved the same as the native npm fixture: an event
+written immediately after `watch` can be missed during watcher startup. This
+was not treated as a protocol failure because the documented production
+ordering passed on the native fixture and the custom Linux target.
 
-- REALPATH/PWD and root listing;
-- mkdir `/alpha`;
-- upload to `/alpha/upload.txt`;
-- directory listing and download;
-- rename to `/alpha/renamed.txt` and second download;
-- file delete and directory delete.
+## Remaining platform scope
 
-The sequence passed against both the public baseline and the custom target.
-All downloads were byte-for-byte equal to the uploads, and disposable remote
-files/directories were removed after each run.
-
-## Not run
-
-The VS Code extension was not installed into a GUI session. The documented
-Natizyskunk SFTP configuration omits plaintext credentials and uses only the
-SFTP v3 operations covered by the OpenSSH and ssh2 integration runs.
-
-The custom server's unpublished source was not available, so compatibility is
-claimed from exact runtime identity, captured framing, and live behavior—not
-from a custom-source audit. The public v4.20.1 tag and its pinned VS Code commit
-remain authoritative for every protocol implementation decision.
+The live tests ran on macOS for the local side and on the public local fixture
+plus the custom remote host. Windows local path behavior is implemented through
+Node path APIs and drive-letter rejection but has not had a live Windows run.
+The custom implementation's unpublished source was unavailable; compatibility
+is established from exact runtime identity, captured framing, and observed
+behavior, while the public pinned source remains authoritative.
