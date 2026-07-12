@@ -27,6 +27,18 @@ need neither Bun nor Node.js.
 `bun run build` also produces portable Node-compatible JavaScript at
 `dist/index.js` for development.
 
+## Releases
+
+Pushing a tag that matches the package version, such as `v0.3.0`, runs the
+GitHub Actions release workflow. It tests Antler, builds Linux x64 and Windows
+x64 executables, publishes compressed artifacts and `SHA256SUMS` to a
+GitHub Release, and generates release notes.
+
+```sh
+git tag v0.3.0
+git push origin v0.3.0
+```
+
 ## Connect a project
 
 Create or choose a local directory and paste the complete URL from the browser.
