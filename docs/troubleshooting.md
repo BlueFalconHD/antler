@@ -2,8 +2,8 @@
 
 ## No project is found
 
-Run `moose-proxy init <local-directory>` first. Commands search upward from the
-given directory for `.moose_proxy/config.json`, like Git searches for `.git`.
+Run `antler init <local-directory>` first. Commands search upward from the
+given directory for `.antler/config.json`, like Git searches for `.git`.
 Missing or malformed state never causes either tree to become authoritative.
 
 ## Authentication fails
@@ -13,17 +13,18 @@ Missing or malformed state never causes either tree to become authoritative.
 - Wrong passwords return the login HTML with HTTP 200; the CLI recognizes this
   as failure. Avoid rapid retries because code-server rate-limits login errors.
 - A password file must be a non-symlink regular file with mode 0600 or stricter.
-- External SSO without code-server's password form is outside these profiles.
+- External SSO without Legitimoose's code-server password form is unsupported.
 
 If an ephemeral instance changes its password, update the protected password
 file or omit `--password-file` and enter the new value when starting.
 
 ## `/version` or handshake mismatch
 
-Public v4.20.1 must return `e76afa4a...`; the VS Code gitlink
-`8b377503...` is not the product commit. Run `moose-proxy doctor` and select the
-matching profile. Use `--allow-version-mismatch` only while investigating a
-known development build.
+Legitimoose 69.0.0 must return `ebeb3c82...`; the VS Code gitlink
+`8b377503...` is not the product commit. There is no alternate target to
+select. Update `src/compatibility/legitimoose.ts` and repeat the integration
+suite when the service is upgraded. Use `--allow-version-mismatch` only while
+investigating a known development build.
 
 `Unauthorized client` usually means the target re-enabled a proprietary
 connection token or signing scheme not present in public code-server.
@@ -47,20 +48,20 @@ project config so the insecure state remains visible.
 
 Symlinks are deliberately unsupported. On macOS, `/tmp` is a symlink to
 `/private/tmp`; configure the canonical path. Absolute event paths outside the
-root, backslashes, NUL, `..`, `.git`, and `.moose_proxy` are also denied.
+root, backslashes, NUL, `..`, `.git`, and `.antler` are also denied.
 
 ## A file becomes a conflict
 
 Nothing has been overwritten. Inspect both local and remote versions, then:
 
 ```sh
-moose-proxy resolve path/to/file --take local
+antler resolve path/to/file --take local
 # or
-moose-proxy resolve path/to/file --take remote
+antler resolve path/to/file --take remote
 ```
 
 Resolution is refused if either fingerprint changed after conflict detection.
-The discarded bytes are saved beneath `.moose_proxy/conflicts/` before the
+The discarded bytes are saved beneath `.antler/conflicts/` before the
 chosen version is written.
 
 Type conflicts and delete/modify conflicts require manually making both sides
@@ -68,10 +69,10 @@ the same kind before resolving.
 
 ## A deleted file remains on the other side
 
-This is the safe default. Review `moose-proxy status`, then run:
+This is the safe default. Review `antler status`, then run:
 
 ```sh
-moose-proxy sync --approve-deletes
+antler sync --approve-deletes
 ```
 
 If the circuit breaker activates, verify the proposed scale before adding
@@ -81,7 +82,7 @@ without checking.
 
 ## Remote updates are delayed
 
-Run `moose-proxy doctor` to verify that event subscription setup succeeds.
+Run `antler doctor` to verify that event subscription setup succeeds.
 Native VS Code watchers start asynchronously behind the watch RPC, so the
 daemon always installs the watcher before its startup reconciliation. Events
 remain hints: a 30-second full reconciliation recovers from a missed/coalesced
@@ -89,33 +90,41 @@ event. Watcher errors and reconnects trigger an immediate full scan.
 
 ## Repeated `Reserved sync path component` watcher warnings
 
-`.git` and `.moose_proxy` activity is expected and should be silent. Older
+`.git` and `.antler` activity is expected and should be silent. Older
 builds validated an absolute macOS watcher filename before recognizing the
 reserved component, causing a rapid warning/restart loop. Rebuild and restart
 the process so `dist/` contains the raw-path filter:
 
 ```sh
 cd /path/to/moose_proxy
-npm run build
-node dist/index.js start /path/to/local/project
+bun run build:exe
+./dist/antler start /path/to/local/project
 ```
 
 Stop the old process with Ctrl-C before launching the rebuilt one. A long-lived
 old loop can temporarily exhaust watcher descriptors (`EMFILE`); stopping all
-old moose-proxy processes releases them before the new daemon starts.
+old antler processes releases them before the new daemon starts.
 
 The current watcher drops both absolute and relative reserved paths before
 normalization. If the warning remains after a clean restart, run with
-`--log-level debug` and report the first warning plus `node --version`; do not
-delete `.moose_proxy`.
+`--log-level debug` and report the first warning plus `antler --version`; do
+not delete `.antler`.
+
+## Both `.antler` and `.moose_proxy` exist
+
+Stop every old daemon before starting Antler. A normal upgrade atomically
+renames `.moose_proxy` to `.antler` and removes the old target-selection field
+from `config.json`. If both directories exist, Antler stops because merging or
+choosing sync baselines could destroy data. Move neither directory until you
+have inspected their `projectId` and retained a backup.
 
 ## Repeated commands keep asking for the password
 
 Top-level commands are independent processes and intentionally authenticate
-independently. For an interactive session, run `moose-proxy sh` once and use
+independently. For an interactive session, run `antler sh` once and use
 `status`, `sync`, `conflicts`, `resolve`, `checkpoints`, `restore`, and `doctor`
 at its prompt. The cookie and WebSocket remain in memory until the shell exits.
-Use `moose-proxy start` separately when continuous watch synchronization is
+Use `antler start` separately when continuous watch synchronization is
 desired.
 
 ## Reconnect loop
@@ -128,7 +137,7 @@ TLS certificate, prefix route, and `/version` value.
 ## Interrupted operation is reported
 
 The journal means an operation lost a definitive completion point. Run
-`moose-proxy sync`; it performs a full comparison and converges based on actual
+`antler sync`; it performs a full comparison and converges based on actual
 content. Do not delete `state.json` to clear the warning.
 
 ## Transfer is still large

@@ -4,7 +4,7 @@
 
 - The configured code-server TLS endpoint and its remote operating system are
   trusted.
-- The local user can read the local working tree, `.moose_proxy` recovery
+- The local user can read the local working tree, `.antler` recovery
   objects, configured password file, and this process's memory.
 - Local and remote filesystem events are untrusted hints. Every path is parsed
   and confined again before any operation.
@@ -22,7 +22,8 @@ All stored paths are root-relative. Validation rejects:
 
 - absolute paths and drive-letter paths;
 - NUL, backslash, and `..` components;
-- `.git`, `.moose_proxy`, and internal temporary names at any depth;
+- `.git`, `.antler`, legacy `.moose_proxy`, and both generations of internal
+  temporary names at any depth;
 - paths outside the configured local or remote root;
 - symlinks and non-file/non-directory special entries.
 
@@ -57,13 +58,20 @@ support safe in-root links.
 The state directory itself is hard-excluded in code, independent of ignore
 configuration. A missing or malformed state file fails closed.
 
+Legacy migration is a same-parent atomic rename from `.moose_proxy` to
+`.antler`, followed by an atomic non-secret config rewrite. If both state
+directories exist, migration fails closed without reading either as authority.
+
 ## Credentials and transport
 
 - TLS verification is on by default.
 - The password is accepted only from a hidden TTY prompt,
-  `MOOSE_PROXY_CODE_SERVER_PASSWORD`, or a protected regular file.
+  `ANTLER_CODE_SERVER_PASSWORD`, or a protected regular file.
 - Password contents and the code-server session cookie remain in memory and
   are never persisted.
+- The compiled Bun executable disables automatic `.env` and `bunfig.toml`
+  loading; credentials come only from the documented prompt, environment
+  variable, or protected file.
 - The optional password-file path is non-secret and may be saved in config.
 - Prefix-aware login cookies, WebSocket Origin, product commit, and stable route
   are matched to the pinned public implementation.
@@ -81,11 +89,11 @@ unexplained production mismatch.
 
 ## Local recovery data
 
-`.moose_proxy/objects` and `.moose_proxy/conflicts` can contain previous file
+`.antler/objects` and `.antler/conflicts` can contain previous file
 contents. The directory is mode 0700 and files are 0600, but this is not
 encryption. Use an encrypted local volume if the project requires encryption
 at rest.
 
-Temporary remote files use `.moose_proxy-tmp-<uuid>`. They are excluded from
+Temporary remote files use `.antler-tmp-<uuid>`. They are excluded from
 watch processing and removed on ordinary failure. A machine crash can leave
 one behind; it never replaces the original until the final rename succeeds.

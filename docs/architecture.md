@@ -9,7 +9,7 @@ flowchart LR
   Agent["VS Code remote disk provider"] --> RemoteWatch["fileChange subscription"]
   LocalWatch --> Planner["Reconciler"]
   RemoteWatch --> Planner
-  Planner <--> State[".moose_proxy state, objects, journal"]
+  Planner <--> State[".antler state, objects, journal"]
   Planner --> Atomic["Atomic local/remote executor"]
   Atomic --> FS["remoteFilesystem"]
   FS --> IPC["VS Code IPC calls and events"]
@@ -33,7 +33,7 @@ flowchart LR
 | Reconciliation and durable state | `src/sync/syncEngine.ts`, `stateStore.ts`, `objectStore.ts` |
 | Watch coalescing/reconnect | `src/sync/watchers.ts`, `syncDaemon.ts` |
 | Git safety snapshots | `src/git/checkpoints.ts` |
-| Compatibility identities | `src/compatibility/profiles.ts` |
+| Single Legitimoose protocol identity | `src/compatibility/legitimoose.ts` |
 
 ## Source authority
 
@@ -69,11 +69,11 @@ Copyright notices for adapted code remain in source and
 2. Parse the hidden `base`; POST `password`, `base`, and final login `href`.
 3. Require a redirect because wrong passwords render HTTP 200.
 4. Keep `code-server-session` only in an in-memory cookie jar and verify it.
-5. Fetch prefix-relative `/version` and match the compatibility profile.
+5. Fetch prefix-relative `/version` and require the pinned Legitimoose commit.
 6. Connect to
    `<prefix>/stable-<productCommit>?reconnectionToken=<uuid>&reconnection=false&skipWebSocketFrames=false`.
 
-The supplied custom browser frame decoded as a 13-byte persistent control
+The supplied Legitimoose browser frame decoded as a 13-byte persistent control
 frame containing product commit
 `ebeb3c82ac91ac3e453356093435047ed911a179` and browser connection type 2
 (ExtensionHost). This client deliberately requests type 1 (Management), which
@@ -106,6 +106,15 @@ and remote-agent manager directly. It never recursively invokes the CLI, so
 the authentication cookie and Management connection remain live between
 commands. The parser supports quoting and escaping only; it has no evaluation
 or operating-system command path.
+
+## Release packaging
+
+Development uses Bun 1.3.1 with a text `bun.lock`. Type checking still uses
+TypeScript and tests still use Vitest. `bun build --compile` bundles the same
+Node-compatible source, npm dependencies, and Bun runtime into one native
+`dist/antler` executable. Automatic `.env` and `bunfig.toml` loading are
+disabled in that artifact so packaging does not add an implicit credential or
+configuration source.
 
 ## Remote watch contract
 
