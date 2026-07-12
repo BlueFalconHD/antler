@@ -1,4 +1,5 @@
-import { IpcClient } from "./ipcClient.js";
+import { randomUUID } from "node:crypto";
+import { IpcClient, type IpcSubscription } from "./ipcClient.js";
 import { vsBuffer } from "./serialization.js";
 
 export const enum FileType {
@@ -25,6 +26,21 @@ export interface RemoteDirectoryEntry {
   readonly type: number;
 }
 
+export const enum FileChangeType {
+  Updated = 0,
+  Added = 1,
+  Deleted = 2,
+}
+
+export interface RemoteFileChange {
+  readonly path: string;
+  readonly type: FileChangeType;
+}
+
+export interface RemoteWatch {
+  dispose(): Promise<void>;
+}
+
 interface UriComponents {
   readonly $mid: 1;
   readonly scheme: "vscode-remote";
@@ -34,6 +50,7 @@ interface UriComponents {
 
 export class RemoteFileSystemClient {
   private readonly fdOperations = new Map<number, Promise<void>>();
+  private readonly sessionId = randomUUID();
 
   public constructor(
     private readonly ipc: IpcClient,
@@ -60,6 +77,14 @@ export class RemoteFileSystemClient {
       throw new Error("malformed remoteFilesystem readFile response");
     }
     return result;
+  }
+
+  public async writeFile(path: string, content: Buffer, overwrite = true): Promise<void> {
+    await this.call("writeFile", [
+      this.uri(path),
+      vsBuffer(content),
+      { create: true, overwrite, unlock: false, atomic: false },
+    ]);
   }
 
   public async openRead(path: string): Promise<number> {
@@ -134,6 +159,78 @@ export class RemoteFileSystemClient {
 
   public async copy(source: string, destination: string, overwrite = false): Promise<void> {
     await this.call("copy", [this.uri(source), this.uri(destination), { overwrite }]);
+  }
+
+  public async watch(
+    path: string,
+    onChange: (changes: readonly RemoteFileChange[]) => void,
+    onError: (error: Error) => void,
+    excludes: readonly string[] = [],
+  ): Promise<RemoteWatch> {
+    const requestId = randomUUID();
+    const subscription: IpcSubscription = await this.ipc.listen(
+      "remoteFilesystem",
+      "fileChange",
+      [this.sessionId],
+      (payload) => {
+        if (typeof payload === "string") {
+          onError(new Error(payload));
+          return;
+        }
+        if (!Array.isArray(payload)) {
+          onError(new Error("malformed remoteFilesystem fileChange payload"));
+          return;
+        }
+        const changes: RemoteFileChange[] = [];
+        for (const raw of payload) {
+          const candidate = raw as { resource?: unknown; type?: unknown };
+          const resource = candidate?.resource as { scheme?: unknown; authority?: unknown; path?: unknown } | undefined;
+          if (
+            !resource ||
+            resource.scheme !== "vscode-remote" ||
+            resource.authority !== this.remoteAuthority ||
+            typeof resource.path !== "string" ||
+            !Number.isInteger(candidate.type) ||
+            (candidate.type !== FileChangeType.Updated &&
+              candidate.type !== FileChangeType.Added &&
+              candidate.type !== FileChangeType.Deleted)
+          ) {
+            onError(new Error("malformed remoteFilesystem fileChange entry"));
+            return;
+          }
+          changes.push({ path: resource.path, type: candidate.type });
+        }
+        onChange(changes);
+      },
+      onError,
+    );
+
+    try {
+      await this.call("watch", [
+        this.sessionId,
+        requestId,
+        this.uri(path),
+        { recursive: true, excludes: [...excludes] },
+      ]);
+    } catch (error) {
+      await subscription.dispose();
+      throw error;
+    }
+
+    let disposed = false;
+    return {
+      dispose: async () => {
+        if (disposed) {
+          return;
+        }
+        disposed = true;
+        try {
+          await this.call("unwatch", [this.sessionId, requestId]);
+        } finally {
+          await subscription.dispose();
+        }
+      },
+    };
   }
 
   private uri(path: string): UriComponents {

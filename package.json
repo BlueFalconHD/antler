@@ -1,7 +1,7 @@
 {
   "name": "moose-proxy",
-  "version": "0.1.0",
-  "description": "A local SFTP bridge for code-server remote filesystems",
+  "version": "0.2.0",
+  "description": "Fast, conflict-safe bidirectional sync for code-server projects",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -15,26 +15,22 @@
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
     "dev": "tsx src/index.ts",
     "lint": "eslint .",
-    "patch:vscode-sftp-extension": "node scripts/patch-vscode-sftp-extension.mjs",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "test:integration:sftp": "tsx test/integration/sftpSmoke.ts",
     "test:integration:prefix-proxy": "tsx test/integration/prefixProxy.ts",
-    "test:integration:key-auth": "tsx test/integration/sftpPublicKeyAuth.ts",
-    "test:integration:write-probe": "tsx test/integration/writeCapabilityProbe.ts",
+    "test:integration:sync": "tsx test/integration/syncSmoke.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "commander": "14.0.2",
-    "ssh2": "1.17.0",
+    "ignore": "7.0.6",
     "tough-cookie": "6.0.0",
     "undici": "7.28.0",
     "ws": "8.21.0"
   },
   "devDependencies": {
     "@types/node": "24.7.2",
-    "@types/ssh2": "1.15.5",
     "@types/ws": "8.18.1",
     "eslint": "9.39.1",
     "tsx": "4.20.6",

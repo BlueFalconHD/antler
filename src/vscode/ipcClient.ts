@@ -6,12 +6,22 @@ const enum ResponseType {
   PromiseSuccess = 201,
   PromiseError = 202,
   PromiseErrorObject = 203,
+  EventFire = 204,
 }
 
 interface PendingCall {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly timer: NodeJS.Timeout;
+}
+
+interface EventSubscription {
+  readonly onEvent: (value: unknown) => void;
+  readonly onClose?: (error: Error) => void;
+}
+
+export interface IpcSubscription {
+  dispose(): Promise<void>;
 }
 
 export class RemoteRpcError extends Error {
@@ -25,6 +35,7 @@ export class IpcClient {
   private requestId = 0;
   private initialized = false;
   private readonly pending = new Map<number, PendingCall>();
+  private readonly subscriptions = new Map<number, EventSubscription>();
   private initializeResolve: (() => void) | undefined;
   private initializeReject: ((error: Error) => void) | undefined;
 
@@ -80,6 +91,46 @@ export class IpcClient {
     return response;
   }
 
+  public async listen(
+    channel: string,
+    event: string,
+    argument: unknown,
+    onEvent: (value: unknown) => void,
+    onClose?: (error: Error) => void,
+  ): Promise<IpcSubscription> {
+    if (!this.initialized) {
+      throw new Error("VS Code IPC client is not initialized");
+    }
+    const id = this.requestId++;
+    const subscription: EventSubscription = {
+      onEvent,
+      ...(onClose ? { onClose } : {}),
+    };
+    this.subscriptions.set(id, subscription);
+    try {
+      // Awaiting this send is required: remoteFilesystem.watch silently does
+      // nothing when the server has not created the session listener yet.
+      await this.protocol.sendRegular(serialize([102, id, channel, event], argument));
+    } catch (error) {
+      this.subscriptions.delete(id);
+      throw error;
+    }
+
+    let disposed = false;
+    return {
+      dispose: async () => {
+        if (disposed) {
+          return;
+        }
+        disposed = true;
+        if (!this.subscriptions.delete(id) || !this.initialized) {
+          return;
+        }
+        await this.protocol.sendRegular(serialize([103, id], undefined));
+      },
+    };
+  }
+
   public dispose(error = new Error("VS Code IPC client disposed")): void {
     this.failAll(error);
   }
@@ -101,6 +152,17 @@ export class IpcClient {
       const id = header[1];
       if (typeof id !== "number") {
         throw new Error("Malformed VS Code IPC response id");
+      }
+      if (type === ResponseType.EventFire) {
+        const subscription = this.subscriptions.get(id);
+        if (subscription) {
+          try {
+            subscription.onEvent(body);
+          } catch {
+            // Consumer failures must not tear down unrelated IPC requests.
+          }
+        }
+        return;
       }
       const pending = this.pending.get(id);
       if (!pending) {
@@ -134,5 +196,13 @@ export class IpcClient {
       pending.reject(error);
     }
     this.pending.clear();
+    for (const subscription of this.subscriptions.values()) {
+      try {
+        subscription.onClose?.(error);
+      } catch {
+        // Closing every subscription is best-effort and isolated.
+      }
+    }
+    this.subscriptions.clear();
   }
 }
