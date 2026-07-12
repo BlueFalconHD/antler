@@ -412,7 +412,15 @@ class SftpSubsystem {
     } else if (handle.kind === "staged-file") {
       try {
         this.manager.assertGeneration(handle.generation);
-        await handle.file.commit();
+        const result = await handle.file.commit();
+        this.logger.debug("SFTP staged file committed", {
+          path: handle.path,
+          strategy: result.strategy,
+          changedRangeBytes: result.changedRangeBytes,
+          transferredBytes: result.transferredBytes,
+          originalSize: result.originalSize,
+          finalSize: result.finalSize,
+        });
       } catch (error) {
         await handle.file.abort();
         throw error;

@@ -6,6 +6,7 @@ export interface CompatibilityProfile {
   readonly vscodeVersion: string;
   readonly vscodeCommit: string;
   readonly verified: boolean;
+  readonly writePreservingOpenOptions?: Readonly<Record<string, unknown>>;
 }
 
 export const compatibilityProfiles = {

@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:integration:sftp": "tsx test/integration/sftpSmoke.ts",
     "test:integration:prefix-proxy": "tsx test/integration/prefixProxy.ts",
+    "test:integration:write-probe": "tsx test/integration/writeCapabilityProbe.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },

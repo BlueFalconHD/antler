@@ -38,7 +38,12 @@ export class RemoteFileSystemClient {
   public constructor(
     private readonly ipc: IpcClient,
     private readonly remoteAuthority: string,
+    private readonly writePreservingOpenOptions?: Readonly<Record<string, unknown>>,
   ) {}
+
+  public get supportsAtomicPartialWrite(): boolean {
+    return this.writePreservingOpenOptions !== undefined;
+  }
 
   public async stat(path: string): Promise<RemoteStat> {
     return (await this.call("stat", [this.uri(path)])) as RemoteStat;
@@ -55,6 +60,13 @@ export class RemoteFileSystemClient {
 
   public async openWriteTruncate(path: string): Promise<number> {
     return (await this.call("open", [this.uri(path), { create: true, unlock: false }])) as number;
+  }
+
+  public async openWritePreserve(path: string): Promise<number> {
+    if (!this.writePreservingOpenOptions) {
+      throw new Error("selected compatibility profile does not support non-truncating write-open");
+    }
+    return (await this.call("open", [this.uri(path), this.writePreservingOpenOptions])) as number;
   }
 
   public read(fd: number, position: number, length: number): Promise<Buffer> {
@@ -110,6 +122,10 @@ export class RemoteFileSystemClient {
 
   public async rename(source: string, destination: string, overwrite = false): Promise<void> {
     await this.call("rename", [this.uri(source), this.uri(destination), { overwrite }]);
+  }
+
+  public async copy(source: string, destination: string, overwrite = false): Promise<void> {
+    await this.call("copy", [this.uri(source), this.uri(destination), { overwrite }]);
   }
 
   private uri(path: string): UriComponents {

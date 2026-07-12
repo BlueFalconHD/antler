@@ -60,6 +60,12 @@ try {
   await simple((callback) => sftp.write(initial, Buffer.from("abcdef"), 0, 6, 0, callback));
   await simple((callback) => sftp.close(initial, callback));
 
+  const unchanged = await open(file, "r+");
+  await simple((callback) => sftp.close(unchanged, callback));
+  if ((await readAll(file)).toString() !== "abcdef") {
+    throw new Error("unchanged write handle altered the file");
+  }
+
   const update = await open(file, "r+");
   await simple((callback) => sftp.write(update, Buffer.from("ZZ"), 0, 2, 2, callback));
   const stagedRead = Buffer.alloc(6);

@@ -67,7 +67,11 @@ export class RemoteAgentManager extends EventEmitter {
     const connection = await (this.options.connector ?? connectRemoteAgent)(this.options);
     this.generation += 1;
     const generation = this.generation;
-    const client = new RemoteFileSystemClient(connection.ipc, connection.remoteAuthority);
+    const client = new RemoteFileSystemClient(
+      connection.ipc,
+      connection.remoteAuthority,
+      this.options.profile.writePreservingOpenOptions,
+    );
     this.connection = connection;
     this.client = client;
     connection.protocol.once("close", (error: Error) => {
