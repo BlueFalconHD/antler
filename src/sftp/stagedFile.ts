@@ -20,6 +20,7 @@ export interface StagedFileOptions {
 
 export class StagedFile {
   private closed = false;
+  private operationChain: Promise<void> = Promise.resolve();
 
   private constructor(
     private readonly remote: RemoteFileSystemClient,
@@ -66,37 +67,45 @@ export class StagedFile {
 
   public async read(position: number, length: number): Promise<Buffer> {
     this.ensureOpen();
-    const output = Buffer.alloc(length);
-    const { bytesRead } = await this.local.read(output, 0, length, position);
-    return output.subarray(0, bytesRead);
+    return this.enqueue(async () => {
+      const output = Buffer.alloc(length);
+      const { bytesRead } = await this.local.read(output, 0, length, position);
+      return output.subarray(0, bytesRead);
+    });
   }
 
   public async write(position: number, data: Buffer): Promise<void> {
     this.ensureOpen();
-    let offset = 0;
-    const target = this.append ? (await this.local.stat()).size : position;
-    while (offset < data.length) {
-      const { bytesWritten } = await this.local.write(data, offset, data.length - offset, target + offset);
-      if (bytesWritten <= 0) {
-        throw new Error("local staging write made no progress");
+    await this.enqueue(async () => {
+      let offset = 0;
+      const target = this.append ? (await this.local.stat()).size : position;
+      while (offset < data.length) {
+        const { bytesWritten } = await this.local.write(data, offset, data.length - offset, target + offset);
+        if (bytesWritten <= 0) {
+          throw new Error("local staging write made no progress");
+        }
+        offset += bytesWritten;
       }
-      offset += bytesWritten;
-    }
+    });
   }
 
   public async stat(): Promise<{ size: number; mtimeMs: number; ctimeMs: number }> {
-    const stat = await this.local.stat();
-    return { size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.birthtimeMs };
+    this.ensureOpen();
+    return this.enqueue(async () => {
+      const stat = await this.local.stat();
+      return { size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.birthtimeMs };
+    });
   }
 
   public async truncate(size: number): Promise<void> {
     this.ensureOpen();
-    await this.local.truncate(size);
+    await this.enqueue(() => this.local.truncate(size));
   }
 
   public async commit(): Promise<void> {
     this.ensureOpen();
     this.closed = true;
+    await this.operationChain;
     let temporaryRemotePath: string | undefined;
     try {
       await this.local.sync();
@@ -154,6 +163,7 @@ export class StagedFile {
       return;
     }
     this.closed = true;
+    await this.operationChain;
     await this.disposeLocal();
     this.releaseLock();
   }
@@ -210,5 +220,14 @@ export class StagedFile {
     if (this.closed) {
       throw new Error("staged file is closed");
     }
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.operationChain.then(operation);
+    this.operationChain = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 }

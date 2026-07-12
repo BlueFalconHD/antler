@@ -12,6 +12,7 @@ export interface CodeServerSession {
   readonly cookieJar: CookieJar;
   cookieHeader(url?: URL): Promise<string>;
   probeVersion(): Promise<string>;
+  close(): Promise<void>;
 }
 
 const redirects = new Set([301, 302, 303, 307, 308]);
@@ -94,6 +95,10 @@ class InMemoryCodeServerSession implements CodeServerSession {
       throw new Error(`code-server version probe failed with HTTP ${response.status}`);
     }
     return (await response.text()).trim();
+  }
+
+  public async close(): Promise<void> {
+    await this.dispatcher.close();
   }
 }
 

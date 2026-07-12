@@ -57,6 +57,7 @@ async function main(): Promise<void> {
     await server.start();
   } catch (error) {
     await manager.stop();
+    await session.close();
     throw error;
   }
 
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
     logger.info("stopping SFTP bridge");
     await server.stop();
     await manager.stop();
+    await session.close();
   };
   process.once("SIGINT", () => void stop().then(() => process.exit(0)));
   process.once("SIGTERM", () => void stop().then(() => process.exit(0)));

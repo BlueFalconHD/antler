@@ -40,6 +40,7 @@ export class WebSocketTransport extends EventEmitter {
       perMessageDeflate: false,
       rejectUnauthorized: options.rejectUnauthorized,
       maxPayload: options.maxPayloadBytes ?? 128 * 1024 * 1024,
+      handshakeTimeout: 15_000,
     };
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(options.url, clientOptions);

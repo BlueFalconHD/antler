@@ -80,17 +80,19 @@ export async function connectRemoteAgent(options: RemoteAgentConnectionOptions):
   });
   const protocol = new PersistentProtocol(transport);
   const authData = randomUUID();
+  const signResponse = waitForControl(protocol, timeoutMs);
   await protocol.sendControl(
     Buffer.from(
       JSON.stringify({ type: "auth", auth: "00000000000000000000", data: authData }),
       "utf8",
     ),
   );
-  const sign = await waitForControl(protocol, timeoutMs);
+  const sign = await signResponse;
   if (sign.type !== "sign" || typeof sign.data !== "string") {
     await protocol.disconnect();
     throw new Error(`unexpected remote-agent handshake response: ${String(sign.type)}`);
   }
+  const confirmationResponse = waitForControl(protocol, timeoutMs);
   await protocol.sendControl(
     Buffer.from(
       JSON.stringify({
@@ -102,7 +104,7 @@ export async function connectRemoteAgent(options: RemoteAgentConnectionOptions):
       "utf8",
     ),
   );
-  const confirmation = await waitForControl(protocol, timeoutMs);
+  const confirmation = await confirmationResponse;
   if (confirmation.type === "error") {
     await protocol.disconnect();
     throw new Error(`remote-agent rejected connection: ${String(confirmation.reason ?? "unknown reason")}`);

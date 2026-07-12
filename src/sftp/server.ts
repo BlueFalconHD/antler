@@ -71,6 +71,7 @@ export class SftpBridgeServer {
     const hostKey = await ensureHostKey(this.options.hostKeyPath);
     const server = new Server({ hostKeys: [hostKey], ident: "SSH-2.0-moose-proxy" });
     this.server = server;
+    server.on("error", (error: Error) => this.options.logger.error("SFTP server error", { error }));
     server.on("connection", (client, info) => this.acceptClient(client, info.ip));
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -113,6 +114,7 @@ export class SftpBridgeServer {
         context.reject(["password"]);
       }
     });
+    client.on("error", (error) => this.options.logger.warn("SFTP client transport error", { remoteAddress, error }));
     client.on("ready", () => {
       client.on("session", (accept) => {
         const session = accept();
@@ -141,6 +143,7 @@ export class SftpBridgeServer {
 class SftpSubsystem {
   private readonly handles = new HandleTable();
   private cleaned = false;
+  private readonly onManagerDisconnect = () => void this.cleanup();
 
   public constructor(
     private readonly sftp: SFTPWrapper,
@@ -172,7 +175,11 @@ class SftpSubsystem {
     this.sftp.on("SYMLINK", (id) => this.unsupported(id));
     this.sftp.on("EXTENDED", (id) => this.unsupported(id));
     this.sftp.once("close", () => void this.cleanup());
-    this.manager.on("disconnect", () => void this.cleanup());
+    this.sftp.once("end", () => {
+      void this.cleanup();
+      this.sftp.end();
+    });
+    this.manager.on("disconnect", this.onManagerDisconnect);
   }
 
   private async lease(): Promise<{ lease: RemoteFileSystemLease; confinement: PathConfinement }> {
@@ -487,13 +494,15 @@ class SftpSubsystem {
       return;
     }
     this.cleaned = true;
+    this.manager.off("disconnect", this.onManagerDisconnect);
     const handles = this.handles.values();
     this.handles.clear();
     for (const handle of handles) {
       try {
         if (handle.kind === "staged-file") {
           await handle.file.abort();
-        } else if (handle.kind === "read-file" && handle.generation === this.manager.currentGeneration) {
+        } else if (handle.kind === "read-file") {
+          this.manager.assertGeneration(handle.generation);
           const { lease } = await this.lease();
           await lease.client.close(handle.remoteFd);
         }

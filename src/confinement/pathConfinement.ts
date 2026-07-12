@@ -46,7 +46,10 @@ export class PathConfinement {
   }
 
   public async verifyRoot(): Promise<void> {
-    await this.inspect(this.remoteRoot, false);
+    const stat = await this.inspect(this.remoteRoot, false);
+    if (!stat || (stat.type & FileType.Directory) === 0) {
+      throw new Error("configured remote root is not a directory");
+    }
   }
 
   private async inspect(remotePath: string, allowMissingFinal: boolean): Promise<RemoteStat | undefined> {

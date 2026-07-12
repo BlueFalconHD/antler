@@ -63,7 +63,7 @@ export class PersistentProtocol extends EventEmitter {
     super();
     transport.on("data", (chunk: Buffer) => this.accept(chunk));
     transport.on("close", (error: Error) => this.handleClose(error));
-    transport.on("transportError", (error: Error) => this.emit("protocolError", error));
+    transport.on("transportError", (error: Error) => this.handleClose(error));
     this.keepAliveTimer = setInterval(() => {
       void this.queueFrame({
         type: ProtocolMessageType.KeepAlive,

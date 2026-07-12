@@ -11,7 +11,7 @@ describe("remote connection loss", () => {
   it("invalidates old handles and reconnects future operations", async () => {
     const protocols: EventEmitter[] = [];
     const manager = new RemoteAgentManager({
-      session: {} as CodeServerSession,
+      session: { close: async () => undefined } as CodeServerSession,
       profile: compatibilityProfiles["public-v4.20.1"],
       rejectUnauthorized: true,
       sendOrigin: true,
