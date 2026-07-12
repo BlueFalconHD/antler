@@ -6,6 +6,7 @@ import { Logger } from "../logging.js";
 import { loadProjectConfig, type ProjectConfig } from "../projectConfig.js";
 import { RemoteAgentManager } from "../remoteAgentManager.js";
 import { loadCodeServerPassword } from "../secrets.js";
+import { TransferProgressReporter } from "../transferProgress.js";
 import { IgnoreRules } from "../sync/ignoreRules.js";
 import { LocalTree } from "../sync/localTree.js";
 import { ObjectStore } from "../sync/objectStore.js";
@@ -93,6 +94,7 @@ export async function openConfiguredRuntime(
       logger.warn("Git safety checkpoints unavailable", { reason: gitStatus.reason });
     }
     const objects = new ObjectStore(stateDirectory);
+    const progressReporter = new TransferProgressReporter(logger);
     const engine = new SyncEngine({
       local,
       remote,
@@ -103,6 +105,7 @@ export async function openConfiguredRuntime(
       maxDeletes: config.safety.maxDeletes,
       maxDeletePercent: config.safety.maxDeletePercent,
       onEvent: (event) => logSyncEvent(logger, event),
+      onProgress: (progress) => progressReporter.report(progress),
     });
     return {
       config,

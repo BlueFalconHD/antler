@@ -5,11 +5,13 @@ import { ObjectStore, contentHash } from "./objectStore.js";
 import { normalizeRelativePath, pathDepth } from "./paths.js";
 import { StateStore } from "./stateStore.js";
 import type {
+  ByteProgress,
   ConflictReason,
   EntryFingerprint,
   ReconcileResult,
   StoredEntry,
   SyncEvent,
+  SyncProgress,
   TreeEndpoint,
   TreeEntry,
 } from "./types.js";
@@ -24,6 +26,7 @@ export interface SyncEngineOptions {
   readonly maxDeletes: number;
   readonly maxDeletePercent: number;
   readonly onEvent?: (event: SyncEvent) => void;
+  readonly onProgress?: (progress: SyncProgress) => void;
 }
 
 export interface ReconcileOptions {
@@ -183,7 +186,8 @@ export class SyncEngine {
       await this.ensureCheckpoint(context, `resolve-${normalized}`);
     }
     const journalId = await this.beginJournal(`resolve-${take}`, normalized);
-    const written = await destination.writeFileAtomic(normalized, stable.content);
+    const resolutionProgress = destination.side === "remote" ? this.byteProgress("upload", normalized) : undefined;
+    const written = await destination.writeFileAtomic(normalized, stable.content, resolutionProgress);
     const localEntry = take === "local" ? stable.entry : written;
     const remoteEntry = take === "local" ? written : stable.entry;
     await this.storeBaseline(normalized, stable.hash, localEntry, remoteEntry, journalId);
@@ -371,7 +375,8 @@ export class SyncEngine {
     const operation = source.side === "local" ? "upload" : "download";
     const journalId = journal ? await this.beginJournal(operation, path) : undefined;
     await this.ensureDestinationParents(path, source, destination);
-    const written = await destination.writeFileAtomic(path, file.content);
+    const writeProgress = destination.side === "remote" ? this.byteProgress("upload", path) : undefined;
+    const written = await destination.writeFileAtomic(path, file.content, writeProgress);
     const local = source.side === "local" ? file.entry : written;
     const remote = source.side === "remote" ? file.entry : written;
     await this.storeBaseline(path, file.hash, local, remote, journalId);
@@ -424,13 +429,21 @@ export class SyncEngine {
       if (!before || before.kind !== "file") {
         throw new Error(`${endpoint.side} file changed type during synchronization: ${path}`);
       }
-      const content = await endpoint.readFile(path);
+      const readProgress = endpoint.side === "remote" ? this.byteProgress("download", path) : undefined;
+      const content = await endpoint.readFile(path, readProgress);
       const after = await endpoint.stat(path);
       if (after && after.kind === "file" && sameFingerprint(before, after) && after.size === content.length) {
         return { entry: after, content, hash: contentHash(content) };
       }
     }
     throw new Error(`${endpoint.side} file kept changing during synchronization: ${path}`);
+  }
+
+  private byteProgress(direction: SyncProgress["direction"], path: string): ByteProgress | undefined {
+    if (!this.options.onProgress) return undefined;
+    return (transferredBytes, totalBytes) => {
+      this.options.onProgress?.({ direction, path, transferredBytes, totalBytes });
+    };
   }
 
   private async recordConflict(

@@ -87,6 +87,47 @@ export class RemoteFileSystemClient {
     ]);
   }
 
+  public async readFileChunked(
+    path: string,
+    totalBytes: number,
+    chunkBytes: number,
+    onProgress: (transferredBytes: number, totalBytes: number) => void,
+  ): Promise<Buffer> {
+    validateChunkArguments(totalBytes, chunkBytes);
+    onProgress(0, totalBytes);
+    const fd = await this.openRead(path);
+    return this.withOpenFile(fd, async () => {
+      const chunks: Buffer[] = [];
+      let position = 0;
+      while (position < totalBytes) {
+        const chunk = await this.read(fd, position, Math.min(chunkBytes, totalBytes - position));
+        if (chunk.length === 0) break;
+        chunks.push(chunk);
+        position += chunk.length;
+        onProgress(position, totalBytes);
+      }
+      return Buffer.concat(chunks, position);
+    });
+  }
+
+  public async writeFileChunked(
+    path: string,
+    content: Buffer,
+    chunkBytes: number,
+    onProgress: (transferredBytes: number, totalBytes: number) => void,
+  ): Promise<void> {
+    validateChunkArguments(content.length, chunkBytes);
+    onProgress(0, content.length);
+    const fd = await this.openWriteTruncate(path);
+    await this.withOpenFile(fd, async () => {
+      for (let position = 0; position < content.length; position += chunkBytes) {
+        const chunk = content.subarray(position, Math.min(position + chunkBytes, content.length));
+        await this.write(fd, position, chunk);
+        onProgress(position + chunk.length, content.length);
+      }
+    });
+  }
+
   public async openRead(path: string): Promise<number> {
     return (await this.call("open", [this.uri(path), { create: false }])) as number;
   }
@@ -259,5 +300,29 @@ export class RemoteFileSystemClient {
     } finally {
       release();
     }
+  }
+
+  private async withOpenFile<T>(fd: number, operation: () => Promise<T>): Promise<T> {
+    let outcome: { readonly succeeded: true; readonly value: T } | { readonly succeeded: false; readonly error: unknown };
+    try {
+      outcome = { succeeded: true, value: await operation() };
+    } catch (error) {
+      outcome = { succeeded: false, error };
+    }
+    let closeError: unknown;
+    try {
+      await this.close(fd);
+    } catch (error) {
+      closeError = error;
+    }
+    if (!outcome.succeeded) throw outcome.error;
+    if (closeError !== undefined) throw closeError;
+    return outcome.value;
+  }
+}
+
+function validateChunkArguments(totalBytes: number, chunkBytes: number): void {
+  if (!Number.isSafeInteger(totalBytes) || totalBytes < 0 || !Number.isSafeInteger(chunkBytes) || chunkBytes <= 0) {
+    throw new Error("invalid chunked remote transfer size");
   }
 }

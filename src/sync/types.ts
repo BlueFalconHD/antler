@@ -81,12 +81,21 @@ export interface ReconcileResult {
   readonly transferredBytes: number;
 }
 
+export interface SyncProgress {
+  readonly direction: "upload" | "download";
+  readonly path: string;
+  readonly transferredBytes: number;
+  readonly totalBytes: number;
+}
+
+export type ByteProgress = (transferredBytes: number, totalBytes: number) => void;
+
 export interface TreeEndpoint {
   readonly side: "local" | "remote";
   scan(): Promise<Map<string, TreeEntry>>;
   stat(relativePath: string): Promise<TreeEntry | undefined>;
-  readFile(relativePath: string): Promise<Buffer>;
-  writeFileAtomic(relativePath: string, content: Buffer): Promise<TreeEntry>;
+  readFile(relativePath: string, onProgress?: ByteProgress): Promise<Buffer>;
+  writeFileAtomic(relativePath: string, content: Buffer, onProgress?: ByteProgress): Promise<TreeEntry>;
   mkdir(relativePath: string): Promise<TreeEntry>;
   delete(relativePath: string): Promise<void>;
   rename(sourcePath: string, destinationPath: string): Promise<TreeEntry>;

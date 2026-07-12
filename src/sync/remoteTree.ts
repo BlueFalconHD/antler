@@ -5,7 +5,8 @@ import { FileType, type RemoteFileSystemClient } from "../vscode/remoteFileSyste
 import { isRemoteNotFound } from "../vscode/errors.js";
 import { mapLimit } from "./concurrency.js";
 import { isHardExcluded, normalizeRelativePath, remotePath, TEMPORARY_FILE_PREFIX, validateRemoteRoot } from "./paths.js";
-import type { TreeEndpoint, TreeEntry } from "./types.js";
+import { LARGE_FILE_THRESHOLD_BYTES, TRANSFER_CHUNK_BYTES } from "./transferPolicy.js";
+import type { ByteProgress, TreeEndpoint, TreeEntry } from "./types.js";
 
 export interface RemoteTreeOptions {
   readonly manager: RemoteAgentManager;
@@ -81,14 +82,20 @@ export class RemoteTree implements TreeEndpoint {
     return this.statWithClient(client, relativePath);
   }
 
-  public async readFile(relativePath: string): Promise<Buffer> {
+  public async readFile(relativePath: string, onProgress?: ByteProgress): Promise<Buffer> {
     const normalized = normalizeRelativePath(relativePath);
-    await this.verifyExisting(normalized, "file");
+    const entry = await this.verifyExisting(normalized, "file");
     const { client } = await this.options.manager.get();
-    return client.readFile(remotePath(this.root, normalized));
+    const absolute = remotePath(this.root, normalized);
+    if (onProgress && entry.size >= LARGE_FILE_THRESHOLD_BYTES) {
+      return client.readFileChunked(absolute, entry.size, TRANSFER_CHUNK_BYTES, onProgress);
+    }
+    const content = await client.readFile(absolute);
+    onProgress?.(content.length, entry.size);
+    return content;
   }
 
-  public async writeFileAtomic(relativePath: string, content: Buffer): Promise<TreeEntry> {
+  public async writeFileAtomic(relativePath: string, content: Buffer, onProgress?: ByteProgress): Promise<TreeEntry> {
     const normalized = normalizeRelativePath(relativePath);
     if (!normalized) {
       throw new Error("Cannot replace the remote sync root");
@@ -99,7 +106,12 @@ export class RemoteTree implements TreeEndpoint {
     const destination = remotePath(this.root, normalized);
     const temporary = path.posix.join(path.posix.dirname(destination), `${TEMPORARY_FILE_PREFIX}${randomUUID()}`);
     try {
-      await client.writeFile(temporary, content, false);
+      if (onProgress && content.length >= LARGE_FILE_THRESHOLD_BYTES) {
+        await client.writeFileChunked(temporary, content, TRANSFER_CHUNK_BYTES, onProgress);
+      } else {
+        await client.writeFile(temporary, content, false);
+        onProgress?.(content.length, content.length);
+      }
       this.options.manager.assertGeneration(generation);
       const staged = await client.stat(temporary);
       if ((staged.type & FileType.File) === 0 || staged.size !== content.length) {
@@ -207,15 +219,18 @@ export class RemoteTree implements TreeEndpoint {
     }
   }
 
-  private async verifyExisting(relativePath: string, expected: "file" | "directory"): Promise<void> {
+  private async verifyExisting(relativePath: string, expected: "file" | "directory"): Promise<TreeEntry> {
     const normalized = normalizeRelativePath(relativePath);
     const pieces = normalized.split("/").filter(Boolean);
+    let target: TreeEntry | undefined;
     for (let index = 0; index <= pieces.length; index += 1) {
       const current = pieces.slice(0, index).join("/");
       const entry = await this.stat(current);
       if (!entry || entry.kind !== (index === pieces.length ? expected : "directory")) {
         throw new Error(`Remote path is not a safe ${index === pieces.length ? expected : "directory"}: ${current}`);
       }
+      target = entry;
     }
+    return target!;
   }
 }

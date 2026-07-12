@@ -1,0 +1,2 @@
+export const LARGE_FILE_THRESHOLD_BYTES = 8 * 1024 * 1024;
+export const TRANSFER_CHUNK_BYTES = 4 * 1024 * 1024;
