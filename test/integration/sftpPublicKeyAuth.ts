@@ -1,4 +1,4 @@
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,8 +7,21 @@ import { Logger } from "../../src/logging.js";
 import type { RemoteAgentManager } from "../../src/remoteAgentManager.js";
 import { resolveLocalSftpAuthentication } from "../../src/sftp/clientAuth.js";
 import { SftpBridgeServer } from "../../src/sftp/server.js";
+import { FileType, type RemoteFileSystemClient } from "../../src/vscode/remoteFileSystem.js";
 
 const { utils } = ssh2;
+
+class FakeRemoteAgentManager extends EventEmitter {
+  private readonly client = {
+    stat: async () => ({ type: FileType.Directory, ctime: 1, mtime: 1, size: 0 }),
+  } as unknown as RemoteFileSystemClient;
+
+  public async get() {
+    return { client: this.client, generation: 1 };
+  }
+
+  public assertGeneration(): void {}
+}
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), "moose-proxy-sftp-auth-test-"));
 const pair = utils.generateKeyPairSync("ed25519");
@@ -35,7 +48,7 @@ const server = new SftpBridgeServer({
   authentication,
   remoteRoot: "/unused",
   stagingDirectory: path.join(directory, "stage"),
-  manager: {} as RemoteAgentManager,
+  manager: new FakeRemoteAgentManager() as unknown as RemoteAgentManager,
   logger: new Logger("error"),
 });
 const client = new ssh2.Client();
@@ -54,7 +67,17 @@ try {
   if (rememberedFingerprint !== resolved.preferredKey?.fingerprint) {
     throw new Error("server did not authenticate and remember the expected public key");
   }
-  process.stdout.write("SFTP public-key authentication smoke test passed\n");
+  const sftp = await new Promise<ssh2.SFTPWrapper>((resolve, reject) => {
+    client.sftp((error, wrapper) => (error ? reject(error) : resolve(wrapper)));
+  });
+  const realPath = await new Promise<string>((resolve, reject) => {
+    sftp.realpath("", (error, resolvedPath) => (error ? reject(error) : resolve(resolvedPath)));
+  });
+  if (realPath !== "/") {
+    throw new Error(`empty REALPATH resolved to ${realPath} instead of /`);
+  }
+  sftp.end();
+  process.stdout.write("SFTP public-key authentication and empty REALPATH smoke test passed\n");
 } finally {
   client.end();
   await server.stop();

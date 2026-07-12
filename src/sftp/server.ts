@@ -232,7 +232,7 @@ class SftpSubsystem {
 
   private async realpath(id: number, requestPath: string): Promise<void> {
     const { confinement } = await this.lease();
-    const resolved = await confinement.existing(requestPath);
+    const resolved = await confinement.existing(requestPath === "" ? "/" : requestPath);
     this.sftp.name(id, [toFileEntry(resolved.clientPath, toAttributes(resolved.stat!))]);
   }
 

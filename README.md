@@ -146,8 +146,9 @@ temporary file and rename.
 Open ForkLift's Connect panel and use SFTP, server `127.0.0.1`, username
 `moose`, and port `2222` under Show Advanced. Click the key icon in the Password
 field and select the private-key path printed by the bridge, then save the
-connection as a favorite. The configured remote root appears as `/`; neither
-the code-server password nor a local SFTP password belongs in ForkLift.
+connection as a favorite. Set Path to `/`; a blank Path is also accepted and
+resolved to the virtual root. Neither the code-server password nor a local SFTP
+password belongs in ForkLift.
 
 ## Upstream reference checkout
 

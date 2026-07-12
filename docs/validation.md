@@ -26,9 +26,10 @@ and valid/invalid SSH signatures.
 
 `npm run test:integration:key-auth` also passed a real loopback SSH handshake
 using a generated Ed25519 client key and confirmed that the successful
-fingerprint was remembered. Automatic discovery on the validation machine
-selected its existing `~/.ssh/id_ed25519.pub` identity without reading the
-private key.
+fingerprint was remembered. The same handshake opens an SFTP subsystem and
+verifies ForkLift's empty initial `REALPATH` resolves to virtual `/`. Automatic
+discovery on the validation machine selected its existing
+`~/.ssh/id_ed25519.pub` identity without reading the private key.
 
 ## Public code-server integration
 

@@ -26,6 +26,9 @@
 - Use `--sftp-authorized-key <public-key-path>` to override discovery. Use
   `--sftp-password-file` or `MOOSE_PROXY_SFTP_PASSWORD` only when password
   authentication is specifically desired.
+- ForkLift may initialize a favorite with an empty `REALPATH` when its Path
+  field is blank. Current builds accept that as virtual `/`; older builds log
+  `Malformed path`. Set Path to `/` or update and restart the bridge.
 
 ## `/version` mismatch
 
