@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { normalizeLocalRelativePath, sameLocalPath } from "../sync/paths.js";
+import { isLocalPathInside, normalizeLocalRelativePath } from "../sync/paths.js";
 
 const CHECKPOINT_PREFIX = "refs/antler/checkpoints/";
 const LEGACY_CHECKPOINT_PREFIX = "refs/moose-proxy/checkpoints/";
@@ -28,9 +28,12 @@ interface CommandResult {
 
 export class GitCheckpoints {
   private repositoryRoot: string | undefined;
+  private syncPathspec: string | undefined;
+  private statePathspec: string | undefined;
 
   public constructor(
-    private readonly localRoot: string,
+    private readonly projectRoot: string,
+    private readonly syncRoot: string,
     private readonly stateDirectory: string,
     private readonly enabled: boolean,
   ) {}
@@ -39,15 +42,24 @@ export class GitCheckpoints {
     if (!this.enabled) {
       return { available: false, reason: "disabled by project configuration" };
     }
-    const top = await runGit(this.localRoot, ["rev-parse", "--show-toplevel"]);
+    const top = await runGit(this.projectRoot, ["rev-parse", "--show-toplevel"]);
     if (top.code !== 0) {
       return { available: false, reason: "local directory is not a Git repository" };
     }
     this.repositoryRoot = await fs.realpath(path.resolve(top.stdout.trim()));
-    const canonicalLocalRoot = await fs.realpath(path.resolve(this.localRoot));
-    if (!sameLocalPath(this.repositoryRoot, canonicalLocalRoot)) {
-      return { available: false, reason: "checkpoints require the sync root to be the Git repository root" };
+    const resolvedProjectRoot = path.resolve(this.projectRoot);
+    const canonicalProjectRoot = await fs.realpath(resolvedProjectRoot);
+    const canonicalSyncRoot = await fs.realpath(path.resolve(this.syncRoot));
+    if (!isLocalPathInside(this.repositoryRoot, canonicalSyncRoot)) {
+      this.repositoryRoot = undefined;
+      return { available: false, reason: "checkpoints require the sync root to be inside the Git repository" };
     }
+    this.syncPathspec = gitRelativePath(this.repositoryRoot, canonicalSyncRoot);
+    const canonicalStateDirectory = path.resolve(
+      canonicalProjectRoot,
+      path.relative(resolvedProjectRoot, path.resolve(this.stateDirectory)),
+    );
+    this.statePathspec = gitRelativePath(this.repositoryRoot, canonicalStateDirectory);
     await this.excludeStateDirectory();
     return this.status();
   }
@@ -84,9 +96,15 @@ export class GitCheckpoints {
     try {
       await mustGit(this.repositoryRoot, ["read-tree", "--empty"], environment);
       await mustGit(this.repositoryRoot, ["add", "-A", "--", "."], environment);
+      if (this.syncPathspec && this.syncPathspec !== ".") {
+        await mustGit(this.repositoryRoot, ["add", "-f", "-A", "--", this.syncPathspec], environment);
+      }
+      const excludedStatePaths = this.statePathspec
+        ? [this.statePathspec, legacyStatePath(this.statePathspec)]
+        : [];
       await mustGit(
         this.repositoryRoot,
-        ["rm", "-r", "--cached", "--ignore-unmatch", "--quiet", ".antler", ".moose_proxy"],
+        ["rm", "-r", "--cached", "--ignore-unmatch", "--quiet", ...excludedStatePaths],
         environment,
       );
       const tree = (await mustGit(this.repositoryRoot, ["write-tree"], environment)).stdout.trim();
@@ -136,10 +154,11 @@ export class GitCheckpoints {
     }
     const normalized = normalizeLocalRelativePath(relativePath);
     if (!normalized) throw new Error("Restoring the entire sync root is not allowed");
-    await mustGit(this.repositoryRoot, ["cat-file", "-e", `${reference}:${normalized}`]);
+    const repositoryPath = this.repositoryPath(normalized);
+    await mustGit(this.repositoryRoot, ["cat-file", "-e", `${reference}:${repositoryPath}`]);
     const safety = await this.checkpoint(`before-restore-${normalized}`);
     if (!safety) throw new Error("Unable to create the pre-restore safety checkpoint");
-    await mustGit(this.repositoryRoot, ["restore", "--source", reference, "--worktree", "--", normalized]);
+    await mustGit(this.repositoryRoot, ["restore", "--source", reference, "--worktree", "--", repositoryPath]);
     return safety;
   }
 
@@ -157,11 +176,31 @@ export class GitCheckpoints {
         throw error;
       }
     }
-    if (!contents.split(/\r?\n/).includes(".antler/")) {
+    if (!this.statePathspec) return;
+    const excludeEntry = `${this.statePathspec}/`;
+    if (!contents.split(/\r?\n/).includes(excludeEntry)) {
       await fs.mkdir(path.dirname(excludeFile), { recursive: true });
-      await fs.appendFile(excludeFile, `${contents && !contents.endsWith("\n") ? "\n" : ""}.antler/\n`);
+      await fs.appendFile(excludeFile, `${contents && !contents.endsWith("\n") ? "\n" : ""}${excludeEntry}\n`);
     }
   }
+
+  private repositoryPath(syncRelativePath: string): string {
+    if (!this.syncPathspec) throw new Error("Git checkpoints are unavailable for this project");
+    return this.syncPathspec === "."
+      ? syncRelativePath
+      : path.posix.join(this.syncPathspec, syncRelativePath);
+  }
+}
+
+function gitRelativePath(repositoryRoot: string, candidate: string): string | undefined {
+  if (!isLocalPathInside(repositoryRoot, candidate)) return undefined;
+  const relative = path.relative(repositoryRoot, candidate);
+  return relative ? relative.split(path.sep).join("/") : ".";
+}
+
+function legacyStatePath(statePathspec: string): string {
+  const parent = path.posix.dirname(statePathspec);
+  return parent === "." ? ".moose_proxy" : path.posix.join(parent, ".moose_proxy");
 }
 
 async function mustGit(

@@ -3,6 +3,7 @@ import { LEGITIMOOSE_COMPATIBILITY } from "../compatibility/legitimoose.js";
 import { GitCheckpoints, type GitStatus } from "../git/checkpoints.js";
 import { Logger } from "../logging.js";
 import { loadProjectConfig, type ProjectConfig } from "../projectConfig.js";
+import { ProjectLock } from "../projectLock.js";
 import { assertSafeProjectPaths, resolveProjectPaths, type ProjectPaths } from "../projectPaths.js";
 import { RemoteAgentManager } from "../remoteAgentManager.js";
 import { loadCodeServerPassword } from "../secrets.js";
@@ -54,15 +55,36 @@ export async function openConfiguredRuntime(
 ): Promise<ProjectRuntime> {
   const paths = resolveProjectPaths(projectRoot, config);
   await assertSafeProjectPaths(paths);
+  const lock = await ProjectLock.acquire(paths.stateDirectory, "synchronization");
   logger.info("Connecting to code-server", { origin: new URL(config.remote.url).origin });
-  const session = await authenticateCodeServer({
-    baseUrl: new URL(config.remote.url),
-    password,
-    rejectUnauthorized: config.remote.rejectUnauthorized,
-  });
-  const remoteVersion = await session.probeVersion();
+  let session: CodeServerSession;
+  try {
+    session = await authenticateCodeServer({
+      baseUrl: new URL(config.remote.url),
+      password,
+      rejectUnauthorized: config.remote.rejectUnauthorized,
+    });
+  } catch (error) {
+    await lock.release();
+    throw error;
+  }
+  let remoteVersion: string;
+  try {
+    remoteVersion = await session.probeVersion();
+  } catch (error) {
+    try {
+      await session.close();
+    } finally {
+      await lock.release();
+    }
+    throw error;
+  }
   if (remoteVersion !== LEGITIMOOSE_COMPATIBILITY.productCommit && !config.remote.allowVersionMismatch) {
-    await session.close();
+    try {
+      await session.close();
+    } finally {
+      await lock.release();
+    }
     throw new Error(
       `Remote commit ${remoteVersion || "(empty)"} does not match Legitimoose ` +
       `${LEGITIMOOSE_COMPATIBILITY.serverVersion} (${LEGITIMOOSE_COMPATIBILITY.productCommit}).`,
@@ -87,7 +109,12 @@ export async function openConfiguredRuntime(
     });
     await Promise.all([local.initialize(), remote.initialize()]);
     logger.success("Remote root confined", { remoteRoot: config.remote.root });
-    const git = new GitCheckpoints(paths.syncRoot, paths.stateDirectory, config.git.enabled && config.git.checkpoints);
+    const git = new GitCheckpoints(
+      paths.projectRoot,
+      paths.syncRoot,
+      paths.stateDirectory,
+      config.git.enabled && config.git.checkpoints,
+    );
     const gitStatus = await git.initialize();
     if (gitStatus.available) {
       logger.success("Git safety checkpoints enabled", { branch: gitStatus.branch, dirty: gitStatus.dirty });
@@ -108,6 +135,7 @@ export async function openConfiguredRuntime(
       onEvent: (event) => logSyncEvent(logger, event),
       onProgress: (progress) => progressReporter.report(progress),
     });
+    let closed = false;
     return {
       config,
       paths,
@@ -120,13 +148,29 @@ export async function openConfiguredRuntime(
       gitStatus,
       engine,
       close: async () => {
-        await manager.stop();
-        await session.close();
+        if (closed) return;
+        closed = true;
+        try {
+          await manager.stop();
+        } finally {
+          try {
+            await session.close();
+          } finally {
+            await lock.release();
+          }
+        }
       },
     };
   } catch (error) {
-    await manager.stop();
-    await session.close();
+    try {
+      await manager.stop();
+    } finally {
+      try {
+        await session.close();
+      } finally {
+        await lock.release();
+      }
+    }
     throw error;
   }
 }

@@ -1,5 +1,6 @@
 import { GitCheckpoints } from "../git/checkpoints.js";
 import { loadProjectConfig } from "../projectConfig.js";
+import { ProjectLock } from "../projectLock.js";
 import { resolveProjectPaths } from "../projectPaths.js";
 import { StateStore } from "../sync/stateStore.js";
 
@@ -11,7 +12,7 @@ export async function projectStatus(projectRoot: string, json: boolean): Promise
   if (state.projectId !== config.projectId) {
     throw new Error("Project configuration and state identities do not match");
   }
-  const git = new GitCheckpoints(paths.syncRoot, paths.stateDirectory, config.git.enabled && config.git.checkpoints);
+  const git = new GitCheckpoints(paths.projectRoot, paths.syncRoot, paths.stateDirectory, config.git.enabled && config.git.checkpoints);
   const gitStatus = await git.initialize();
   const summary = {
     projectRoot: paths.projectRoot,
@@ -70,7 +71,7 @@ export async function listConflicts(projectRoot: string, json: boolean): Promise
 export async function listCheckpoints(projectRoot: string, json: boolean): Promise<void> {
   const config = await loadProjectConfig(projectRoot);
   const paths = resolveProjectPaths(projectRoot, config);
-  const git = new GitCheckpoints(paths.syncRoot, paths.stateDirectory, config.git.enabled && config.git.checkpoints);
+  const git = new GitCheckpoints(paths.projectRoot, paths.syncRoot, paths.stateDirectory, config.git.enabled && config.git.checkpoints);
   const status = await git.initialize();
   if (!status.available) throw new Error(status.reason ?? "Git checkpoints are unavailable");
   const checkpoints = await git.list();
@@ -92,8 +93,13 @@ export async function restoreCheckpoint(
 ): Promise<string> {
   const config = await loadProjectConfig(projectRoot);
   const paths = resolveProjectPaths(projectRoot, config);
-  const git = new GitCheckpoints(paths.syncRoot, paths.stateDirectory, config.git.enabled && config.git.checkpoints);
-  const status = await git.initialize();
-  if (!status.available) throw new Error(status.reason ?? "Git checkpoints are unavailable");
-  return git.restore(reference, relativePath);
+  const lock = await ProjectLock.acquire(paths.stateDirectory, "restore");
+  try {
+    const git = new GitCheckpoints(paths.projectRoot, paths.syncRoot, paths.stateDirectory, config.git.enabled && config.git.checkpoints);
+    const status = await git.initialize();
+    if (!status.available) throw new Error(status.reason ?? "Git checkpoints are unavailable");
+    return await git.restore(reference, relativePath);
+  } finally {
+    await lock.release();
+  }
 }

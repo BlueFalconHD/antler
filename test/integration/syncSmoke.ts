@@ -40,7 +40,7 @@ try {
   const stateDirectory = path.join(localRoot, ".antler");
   const state = new StateStore(stateDirectory);
   await state.initialize("integration");
-  const git = new GitCheckpoints(localRoot, stateDirectory, false);
+  const git = new GitCheckpoints(localRoot, localRoot, stateDirectory, false);
   await git.initialize();
   const engine = new SyncEngine({
     local,

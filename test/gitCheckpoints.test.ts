@@ -22,7 +22,7 @@ describe("Git safety checkpoints", () => {
     await fs.writeFile(path.join(root, "untracked.txt"), "new");
     const beforeHead = (await execute("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim();
     const beforeStatus = (await execute("git", ["-C", root, "status", "--porcelain"])).stdout;
-    const checkpoints = new GitCheckpoints(root, path.join(root, ".antler"), true);
+    const checkpoints = new GitCheckpoints(root, root, path.join(root, ".antler"), true);
     expect((await checkpoints.initialize()).available).toBe(true);
     const reference = await checkpoints.checkpoint("inbound-test");
     expect(reference).toMatch(/^refs\/antler\/checkpoints\//);
@@ -51,5 +51,33 @@ describe("Git safety checkpoints", () => {
     await expect(checkpoints.restore(legacyReference, "tracked.txt")).resolves.toMatch(/^refs\/antler\/checkpoints\//);
     expect(await fs.readFile(path.join(root, "tracked.txt"), "utf8")).toBe("modified");
     await expect(checkpoints.restore(reference!, "../escape")).rejects.toThrow();
+  });
+
+  it("snapshots and restores an ignored sync root nested inside the repository", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "antler-git-nested-"));
+    roots.push(root);
+    const syncRoot = path.join(root, "dist");
+    const stateDirectory = path.join(root, ".antler");
+    await execute("git", ["init", "-q", root]);
+    await Promise.all([fs.mkdir(syncRoot), fs.mkdir(stateDirectory)]);
+    await fs.writeFile(path.join(root, ".gitignore"), "dist/\n");
+    await fs.writeFile(path.join(root, "source.txt"), "source");
+    await execute("git", ["-C", root, "add", ".gitignore", "source.txt"]);
+    await execute("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "base"]);
+    await fs.writeFile(path.join(syncRoot, "generated.txt"), "generated-v1");
+    await fs.writeFile(path.join(stateDirectory, "state.json"), "private");
+
+    const checkpoints = new GitCheckpoints(root, syncRoot, stateDirectory, true);
+    expect((await checkpoints.initialize()).available).toBe(true);
+    const reference = await checkpoints.checkpoint("nested-output");
+
+    const names = (await execute("git", ["-C", root, "ls-tree", "-r", "--name-only", reference!])).stdout;
+    expect(names).toContain("dist/generated.txt");
+    expect(names).toContain("source.txt");
+    expect(names).not.toContain(".antler");
+
+    await fs.writeFile(path.join(syncRoot, "generated.txt"), "generated-v2");
+    await checkpoints.restore(reference!, "generated.txt");
+    expect(await fs.readFile(path.join(syncRoot, "generated.txt"), "utf8")).toBe("generated-v1");
   });
 });
