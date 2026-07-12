@@ -9,7 +9,7 @@ release under Rosetta on an arm64 Mac.
 ```text
 npm run typecheck  passed
 npm run lint       passed
-npm test           29 tests passed
+npm test           35 tests passed
 npm run build      passed
 npm audit          0 vulnerabilities
 ```
@@ -20,7 +20,15 @@ create gaps, error mapping, concurrent handle identity/cleanup, connection
 generation invalidation, partial/offset staged writes, truncate, and abort. It
 also covers changed-range merging, atomic copy-and-patch selection for a
 capability-enabled profile, and zero-transfer close for an unchanged preserved
-handle.
+handle. Local-authentication tests cover agent order, remembered identity,
+sorted public-key-file fallback, explicit overrides, missing-key instructions,
+and valid/invalid SSH signatures.
+
+`npm run test:integration:key-auth` also passed a real loopback SSH handshake
+using a generated Ed25519 client key and confirmed that the successful
+fingerprint was remembered. Automatic discovery on the validation machine
+selected its existing `~/.ssh/id_ed25519.pub` identity without reading the
+private key.
 
 ## Public code-server integration
 

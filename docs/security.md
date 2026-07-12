@@ -46,6 +46,13 @@ out-of-root metadata read.
 - Password files must be protected regular files and cannot be symlinks.
 - The local SSH endpoint always requires authentication and uses a persistent
   configurable host key.
+- With no explicit local authentication setting, discovery reads only public
+  identities from `ssh-add -L` and regular non-certificate `~/.ssh/*.pub`
+  files. The bridge never reads a discovered private key.
+- The selected key must prove possession through the SSH signature exchange.
+  Only its public SHA-256 fingerprint is persisted as the last successful
+  bridge identity. If it disappears, discovery falls back to the first current
+  agent identity or sorted public-key file.
 - Non-loopback binding is refused without explicit opt-in.
 - Only the VS Code management connection and `remoteFilesystem` calls are
   implemented. Tunnel, extension-host, terminal, command, and extension APIs

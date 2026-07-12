@@ -11,6 +11,10 @@ import {
 } from "./compatibility/profiles.js";
 import type { LogLevel } from "./logging.js";
 import { validateRemoteRoot } from "./confinement/pathConfinement.js";
+import {
+  resolveLocalSftpAuthentication,
+  type LocalSftpAuthentication,
+} from "./sftp/clientAuth.js";
 
 export interface BridgeConfig {
   readonly codeServerUrl: URL;
@@ -22,7 +26,7 @@ export interface BridgeConfig {
   readonly allowNonLoopback: boolean;
   readonly hostKeyPath: string;
   readonly sftpUsername: string;
-  readonly sftpPassword: string;
+  readonly sftpAuthentication: LocalSftpAuthentication;
   readonly stagingDirectory: string;
   readonly rejectUnauthorized: boolean;
   readonly sendOrigin: boolean;
@@ -41,6 +45,7 @@ interface CliOptions {
   sshHostKey: string;
   sftpUsername: string;
   sftpPasswordFile?: string;
+  sftpAuthorizedKey: string[];
   stagingDirectory: string;
   insecureSkipTlsVerify?: boolean;
   omitOrigin?: boolean;
@@ -142,6 +147,25 @@ async function loadSecret(filePath: string | undefined, environmentName: string,
   return value;
 }
 
+async function loadOptionalSecret(
+  filePath: string | undefined,
+  environmentName: string,
+  label: string,
+): Promise<string | undefined> {
+  const environmentValue = process.env[environmentName];
+  if (filePath && environmentValue) {
+    throw new Error(`set only one of --${label.toLowerCase().replaceAll(" ", "-")}-file or ${environmentName}`);
+  }
+  if (!filePath && environmentValue === undefined) {
+    return undefined;
+  }
+  const value = filePath ? await readProtectedFile(path.resolve(filePath), label) : environmentValue;
+  if (!value) {
+    throw new Error(`${label} must not be empty`);
+  }
+  return value;
+}
+
 export async function parseConfig(argv: readonly string[]): Promise<BridgeConfig> {
   const program = new Command()
     .name("moose-proxy")
@@ -165,6 +189,12 @@ export async function parseConfig(argv: readonly string[]): Promise<BridgeConfig
     .option("--sftp-username <name>", "local SFTP username", "moose")
     .option("--sftp-password-file <path>", "0600 file containing the local SFTP password")
     .option(
+      "--sftp-authorized-key <path>",
+      "SSH public key authorized for local SFTP (repeatable)",
+      (value: string, previous: string[]) => [...previous, value],
+      [],
+    )
+    .option(
       "--staging-directory <path>",
       "0700 local staging directory used for offset writes",
       path.join(os.tmpdir(), `moose-proxy-${process.getuid?.() ?? "user"}`),
@@ -183,6 +213,16 @@ export async function parseConfig(argv: readonly string[]): Promise<BridgeConfig
     throw new Error("binding to a non-loopback address requires --allow-non-loopback");
   }
   const profile = compatibilityProfiles[options.profile];
+  const sftpPassword = await loadOptionalSecret(
+    options.sftpPasswordFile,
+    "MOOSE_PROXY_SFTP_PASSWORD",
+    "SFTP password",
+  );
+  const sftpAuthentication = await resolveLocalSftpAuthentication({
+    password: sftpPassword,
+    authorizedKeyPaths: options.sftpAuthorizedKey,
+    stateFile: path.join(defaultConfigDirectory(), "moose-proxy", "last_sftp_client_key"),
+  });
   return {
     codeServerUrl: normalizeCodeServerUrl(options.codeServerUrl),
     codeServerPassword: await loadSecret(
@@ -197,7 +237,7 @@ export async function parseConfig(argv: readonly string[]): Promise<BridgeConfig
     allowNonLoopback: options.allowNonLoopback ?? false,
     hostKeyPath: path.resolve(options.sshHostKey),
     sftpUsername: options.sftpUsername,
-    sftpPassword: await loadSecret(options.sftpPasswordFile, "MOOSE_PROXY_SFTP_PASSWORD", "SFTP password"),
+    sftpAuthentication,
     stagingDirectory: path.resolve(options.stagingDirectory),
     rejectUnauthorized: !options.insecureSkipTlsVerify,
     sendOrigin: !options.omitOrigin,

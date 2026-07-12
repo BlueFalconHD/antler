@@ -19,6 +19,7 @@ Focused modules implement each boundary:
 | Responsibility | Module |
 | --- | --- |
 | CLI, secure secret loading, bind policy | `src/config.ts` |
+| local password/key discovery and signature verification | `src/sftp/clientAuth.ts` |
 | code-server login and in-memory cookies | `src/auth/codeServerAuth.ts` |
 | RFC 6455 transport and backpressure | `src/transport/webSocketTransport.ts` |
 | persistent remote-agent framing | `src/vscode/persistentProtocol.ts` |

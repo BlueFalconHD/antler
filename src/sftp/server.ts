@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import ssh2, {
+  type AuthenticationType,
   type Attributes,
   type Connection,
   type FileEntry,
@@ -17,6 +18,7 @@ import { SftpError, SFTP_STATUS, toSftpError } from "./errors.js";
 import { HandleTable, type SftpHandle } from "./handleTable.js";
 import { PathLockManager } from "./pathLocks.js";
 import { StagedFile } from "./stagedFile.js";
+import { matchAndVerifyClientKey, type LocalSftpAuthentication } from "./clientAuth.js";
 
 const { Server, utils } = ssh2;
 const OPEN_MODE = utils.sftp.OPEN_MODE;
@@ -28,7 +30,7 @@ export interface SftpServerOptions {
   readonly port: number;
   readonly hostKeyPath: string;
   readonly username: string;
-  readonly password: string;
+  readonly authentication: LocalSftpAuthentication;
   readonly remoteRoot: string;
   readonly stagingDirectory: string;
   readonly manager: RemoteAgentManager;
@@ -67,6 +69,14 @@ export class SftpBridgeServer {
 
   public constructor(private readonly options: SftpServerOptions) {}
 
+  public get listeningPort(): number {
+    const address = this.server?.address();
+    if (!address || typeof address === "string") {
+      throw new Error("SFTP bridge is not listening on a TCP port");
+    }
+    return address.port;
+  }
+
   public async start(): Promise<void> {
     const hostKey = await ensureHostKey(this.options.hostKeyPath);
     const server = new Server({ hostKeys: [hostKey], ident: "SSH-2.0-moose-proxy" });
@@ -82,7 +92,10 @@ export class SftpBridgeServer {
     });
     this.options.logger.info("SFTP bridge listening", {
       address: this.options.bindAddress,
-      port: this.options.port,
+      port: this.listeningPort,
+      username: this.options.username,
+      remotePath: "/",
+      privateKeyHint: this.options.authentication.preferredKey?.privateKeyHint,
       profile: "sftp-v3",
     });
   }
@@ -104,15 +117,45 @@ export class SftpBridgeServer {
     this.connections.add(client);
     this.options.logger.info("SFTP client connected", { remoteAddress });
     client.on("authentication", (context) => {
-      if (
-        context.method === "password" &&
-        context.username === this.options.username &&
-        passwordsEqual(context.password, this.options.password)
-      ) {
-        context.accept();
-      } else {
-        context.reject(["password"]);
+      const methods: AuthenticationType[] = [];
+      if (this.options.authentication.authorizedKeys.length > 0) {
+        methods.push("publickey");
       }
+      if (this.options.authentication.password !== undefined) {
+        methods.push("password");
+      }
+      if (context.username !== this.options.username) {
+        context.reject(methods);
+        return;
+      }
+      if (context.method === "password" && this.options.authentication.password !== undefined) {
+        if (passwordsEqual(context.password, this.options.authentication.password)) {
+          context.accept();
+        } else {
+          context.reject(methods);
+        }
+        return;
+      }
+      if (context.method === "publickey") {
+        const matched = matchAndVerifyClientKey(
+          this.options.authentication.authorizedKeys,
+          context.key.algo,
+          context.key.data,
+          context.blob,
+          context.signature,
+          context.hashAlgo,
+        );
+        if (matched) {
+          context.accept();
+          if (context.signature) {
+            void this.options.authentication.rememberSuccessfulKey(matched.fingerprint).catch((error: unknown) => {
+              this.options.logger.warn("failed to remember successful SFTP client key", { error });
+            });
+          }
+          return;
+        }
+      }
+      context.reject(methods);
     });
     client.on("error", (error) => this.options.logger.warn("SFTP client transport error", { remoteAddress, error }));
     client.on("ready", () => {

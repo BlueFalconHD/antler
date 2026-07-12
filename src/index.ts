@@ -18,6 +18,15 @@ async function main(): Promise<void> {
       profile: config.profile.name,
     });
   }
+  logger.info("local SFTP authentication configured", {
+    methods: [
+      ...(config.sftpAuthentication.authorizedKeys.length > 0 ? ["publickey"] : []),
+      ...(config.sftpAuthentication.password !== undefined ? ["password"] : []),
+    ],
+    automatic: config.sftpAuthentication.automatic,
+    fingerprint: config.sftpAuthentication.preferredKey?.fingerprint,
+    privateKeyHint: config.sftpAuthentication.preferredKey?.privateKeyHint,
+  });
   logger.info("authenticating to code-server", { origin: config.codeServerUrl.origin, profile: config.profile.name });
   const session = await authenticateCodeServer({
     baseUrl: config.codeServerUrl,
@@ -44,7 +53,7 @@ async function main(): Promise<void> {
       port: config.port,
       hostKeyPath: config.hostKeyPath,
       username: config.sftpUsername,
-      password: config.sftpPassword,
+      authentication: config.sftpAuthentication,
       remoteRoot: config.remoteRoot,
       stagingDirectory: config.stagingDirectory,
       manager,

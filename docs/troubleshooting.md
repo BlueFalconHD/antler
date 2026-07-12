@@ -11,6 +11,22 @@
 - A deployment using external SSO instead of code-server's password form is not
   supported by this profile.
 
+## ForkLift or local SFTP authentication fails
+
+- Check the startup `local SFTP authentication configured` record. In ForkLift,
+  choose SFTP, `127.0.0.1`, port `2222`, username `moose`, then click the key
+  icon in the Password field and select the logged `privateKeyHint` path.
+- The remembered identity is the last key that authenticated successfully to
+  this bridge; OpenSSH does not provide a trustworthy system-wide last-used-key
+  timestamp. If it is unavailable, the first `ssh-add -L` identity or first
+  sorted `~/.ssh/*.pub` file is selected.
+- Run `ssh-add -L` to confirm the agent exposes public identities. If no key is
+  available, run `ssh-keygen -t ed25519`, then
+  `ssh-add ~/.ssh/id_ed25519`.
+- Use `--sftp-authorized-key <public-key-path>` to override discovery. Use
+  `--sftp-password-file` or `MOOSE_PROXY_SFTP_PASSWORD` only when password
+  authentication is specifically desired.
+
 ## `/version` mismatch
 
 The response is the product commit used in both the WebSocket path and second

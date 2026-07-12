@@ -5,16 +5,21 @@ const host = process.env.MOOSE_PROXY_INTEGRATION_HOST ?? "127.0.0.1";
 const port = Number(process.env.MOOSE_PROXY_INTEGRATION_PORT ?? "39022");
 const username = process.env.MOOSE_PROXY_INTEGRATION_USERNAME ?? "moose";
 const passwordFile = process.env.MOOSE_PROXY_INTEGRATION_PASSWORD_FILE;
-if (!passwordFile) {
-  throw new Error("MOOSE_PROXY_INTEGRATION_PASSWORD_FILE is required");
+const privateKeyFile = process.env.MOOSE_PROXY_INTEGRATION_PRIVATE_KEY_FILE;
+if ((!passwordFile && !privateKeyFile) || (passwordFile && privateKeyFile)) {
+  throw new Error(
+    "set exactly one of MOOSE_PROXY_INTEGRATION_PASSWORD_FILE or MOOSE_PROXY_INTEGRATION_PRIVATE_KEY_FILE",
+  );
 }
-const password = (await fs.readFile(passwordFile, "utf8")).replace(/\r?\n$/, "");
+const authentication = passwordFile
+  ? { password: (await fs.readFile(passwordFile, "utf8")).replace(/\r?\n$/, "") }
+  : { privateKey: await fs.readFile(privateKeyFile!) };
 
 const client = new ssh2.Client();
 const sftp = await new Promise<SFTPWrapper>((resolve, reject) => {
   client.once("ready", () => client.sftp((error, value) => (error ? reject(error) : resolve(value))));
   client.once("error", reject);
-  client.connect({ host, port, username, password, hostVerifier: () => true });
+  client.connect({ host, port, username, ...authentication, hostVerifier: () => true });
 });
 
 function simple(operation: (callback: (error?: Error | null) => void) => void): Promise<void> {
