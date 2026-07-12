@@ -1,56 +1,56 @@
 {
-  "name": "legitimoose-antler",
-  "version": "0.1.1",
-  "description": "Local-first datapack synchronization for Legitimoose",
-  "license": "MIT",
-  "type": "module",
-  "packageManager": "bun@1.3.1",
-  "bin": {
-    "antler": "dist/index.js"
-  },
-  "files": [
-    "dist/",
-    "docs/",
-    "scripts/fetch-upstream.sh",
-    "LICENSE",
-    "README.md",
-    "THIRD_PARTY_NOTICES.md"
-  ],
-  "engines": {
-    "bun": ">=1.3.1",
-    "node": ">=20.18.1"
-  },
-  "scripts": {
-    "prebuild": "bun scripts/clean.mjs",
-    "build": "tsc -p tsconfig.build.json",
-    "build:exe": "bun scripts/build-executable.mjs",
-    "build:exe:linux": "bun scripts/build-executable.mjs bun-linux-x64",
-    "build:exe:macos-arm64": "bun scripts/build-executable.mjs bun-darwin-arm64",
-    "build:exe:macos-x64": "bun scripts/build-executable.mjs bun-darwin-x64",
-    "build:exe:windows": "bun scripts/build-executable.mjs bun-windows-x64",
-    "check": "bun run typecheck && bun run lint && bun run test && bun run build && bun run build:exe",
-    "dev": "bun --watch src/index.ts",
-    "lint": "eslint .",
-    "start": "bun dist/index.js",
-    "test": "vitest run",
-    "test:integration:prefix-proxy": "bun test/integration/prefixProxy.ts",
-    "test:integration:sync": "bun test/integration/syncSmoke.ts",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "commander": "14.0.2",
-    "ignore": "7.0.6",
-    "tough-cookie": "6.0.0",
-    "undici": "7.28.0",
-    "ws": "8.21.0"
-  },
-  "devDependencies": {
-    "@types/node": "24.7.2",
-    "@types/ws": "8.18.1",
-    "eslint": "9.39.1",
-    "typescript": "5.9.3",
-    "typescript-eslint": "8.46.1",
-    "vitest": "3.2.7"
-  }
+    "name": "legitimoose-antler",
+    "version": "0.1.2",
+    "description": "Local-first datapack synchronization for Legitimoose",
+    "license": "MIT",
+    "type": "module",
+    "packageManager": "bun@1.3.1",
+    "bin": {
+        "antler": "dist/index.js"
+    },
+    "files": [
+        "dist/",
+        "docs/",
+        "scripts/fetch-upstream.sh",
+        "LICENSE",
+        "README.md",
+        "THIRD_PARTY_NOTICES.md"
+    ],
+    "engines": {
+        "bun": ">=1.3.1",
+        "node": ">=20.18.1"
+    },
+    "scripts": {
+        "prebuild": "bun scripts/clean.mjs",
+        "build": "tsc -p tsconfig.build.json",
+        "build:exe": "bun scripts/build-executable.mjs",
+        "build:exe:linux": "bun scripts/build-executable.mjs bun-linux-x64",
+        "build:exe:macos-arm64": "bun scripts/build-executable.mjs bun-darwin-arm64",
+        "build:exe:macos-x64": "bun scripts/build-executable.mjs bun-darwin-x64",
+        "build:exe:windows": "bun scripts/build-executable.mjs bun-windows-x64",
+        "check": "bun run typecheck && bun run lint && bun run test && bun run build && bun run build:exe",
+        "dev": "bun --watch src/index.ts",
+        "lint": "eslint .",
+        "start": "bun dist/index.js",
+        "test": "vitest run",
+        "test:integration:prefix-proxy": "bun test/integration/prefixProxy.ts",
+        "test:integration:sync": "bun test/integration/syncSmoke.ts",
+        "test:watch": "vitest",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "commander": "14.0.2",
+        "ignore": "7.0.6",
+        "tough-cookie": "6.0.0",
+        "undici": "7.28.0",
+        "ws": "8.21.0"
+    },
+    "devDependencies": {
+        "@types/node": "24.7.2",
+        "@types/ws": "8.18.1",
+        "eslint": "9.39.1",
+        "typescript": "5.9.3",
+        "typescript-eslint": "8.46.1",
+        "vitest": "3.2.7"
+    }
 }
