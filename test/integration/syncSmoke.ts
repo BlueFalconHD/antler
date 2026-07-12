@@ -63,12 +63,20 @@ try {
   }
 
   let watcherResolve: ((paths: readonly string[]) => void) | undefined;
-  const watcherEvent = new Promise<readonly string[]>((resolve) => { watcherResolve = resolve; });
+  let watcherReject: ((error: Error) => void) | undefined;
+  const watcherEvent = new Promise<readonly string[]>((resolve, reject) => {
+    watcherResolve = resolve;
+    watcherReject = reject;
+  });
   const watcher = await client.watch(
     remoteRoot,
     (changes) => watcherResolve?.(changes.map((change) => change.path)),
-    (error) => { throw error; },
+    (error) => watcherReject?.(error),
   );
+  // The native watcher starts asynchronously behind the watch RPC. A full
+  // reconciliation closes that startup gap in the same order as SyncDaemon.
+  await engine.reconcile();
+  await new Promise<void>((resolve) => setTimeout(resolve, 250));
   await client.writeFile(path.posix.join(remoteRoot, "roundtrip.txt"), Buffer.from("remote-v2"), true);
   const changedPaths = await Promise.race([
     watcherEvent,
@@ -100,12 +108,24 @@ try {
     throw new Error("nested upload failed");
   }
 
-  await fs.unlink(path.join(localRoot, "nested", "upload.txt"));
+  await fs.rename(path.join(localRoot, "nested", "upload.txt"), path.join(localRoot, "nested", "renamed.txt"));
+  await engine.reconcile({ paths: ["nested/upload.txt", "nested/renamed.txt"] });
+  if ((await client.readFile(path.posix.join(remoteRoot, "nested/renamed.txt"))).toString() !== "nested") {
+    throw new Error("remote rename failed");
+  }
+  try {
+    await client.stat(path.posix.join(remoteRoot, "nested/upload.txt"));
+    throw new Error("remote rename left the old path behind");
+  } catch (error) {
+    if (error instanceof Error && error.message === "remote rename left the old path behind") throw error;
+  }
+
+  await fs.unlink(path.join(localRoot, "nested", "renamed.txt"));
   const pending = await engine.reconcile();
   if (pending.pendingDeletes === 0) throw new Error("delete was not held for approval");
   await engine.reconcile({ approveDeletes: true, forceLargeDelete: true });
   try {
-    await client.stat(path.posix.join(remoteRoot, "nested/upload.txt"));
+    await client.stat(path.posix.join(remoteRoot, "nested/renamed.txt"));
     throw new Error("approved remote deletion did not occur");
   } catch (error) {
     if (error instanceof Error && error.message === "approved remote deletion did not occur") throw error;

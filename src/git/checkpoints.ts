@@ -2,12 +2,19 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { normalizeRelativePath } from "../sync/paths.js";
 
 export interface GitStatus {
   readonly available: boolean;
   readonly branch?: string;
   readonly dirty?: boolean;
   readonly reason?: string;
+}
+
+export interface GitCheckpoint {
+  readonly reference: string;
+  readonly commit: string;
+  readonly createdAt: string;
 }
 
 interface CommandResult {
@@ -94,12 +101,41 @@ export class GitCheckpoints {
       ).stdout.trim();
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const safeLabel = label.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 48) || "sync";
-      const reference = `refs/moose-proxy/checkpoints/${timestamp}-${safeLabel}`;
-      await mustGit(this.repositoryRoot, ["update-ref", reference, commit]);
+      const reference = `refs/moose-proxy/checkpoints/${timestamp}-${safeLabel}-${randomUUID().slice(0, 8)}`;
+      await mustGit(this.repositoryRoot, ["update-ref", reference, commit, ""]);
       return reference;
     } finally {
       await fs.rm(index, { force: true });
     }
+  }
+
+  public async list(): Promise<readonly GitCheckpoint[]> {
+    if (!this.repositoryRoot) return [];
+    const result = await mustGit(this.repositoryRoot, [
+      "for-each-ref",
+      "--sort=-creatordate",
+      "--format=%(refname)%09%(objectname)%09%(creatordate:iso8601-strict)",
+      "refs/moose-proxy/checkpoints/",
+    ]);
+    return result.stdout.split("\n").filter(Boolean).map((line) => {
+      const [reference, commit, createdAt] = line.split("\t");
+      if (!reference || !commit || !createdAt) throw new Error("Git returned a malformed checkpoint record");
+      return { reference, commit, createdAt };
+    });
+  }
+
+  public async restore(reference: string, relativePath: string): Promise<string> {
+    if (!this.repositoryRoot) throw new Error("Git checkpoints are unavailable for this project");
+    if (!reference.startsWith("refs/moose-proxy/checkpoints/")) {
+      throw new Error("Restore source must be a refs/moose-proxy/checkpoints/ reference");
+    }
+    const normalized = normalizeRelativePath(relativePath);
+    if (!normalized) throw new Error("Restoring the entire sync root is not allowed");
+    await mustGit(this.repositoryRoot, ["cat-file", "-e", `${reference}:${normalized}`]);
+    const safety = await this.checkpoint(`before-restore-${normalized}`);
+    if (!safety) throw new Error("Unable to create the pre-restore safety checkpoint");
+    await mustGit(this.repositoryRoot, ["restore", "--source", reference, "--worktree", "--", normalized]);
+    return safety;
   }
 
   private async excludeStateDirectory(): Promise<void> {

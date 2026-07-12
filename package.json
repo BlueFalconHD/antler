@@ -7,10 +7,19 @@
   "bin": {
     "moose-proxy": "dist/index.js"
   },
+  "files": [
+    "dist/",
+    "docs/",
+    "scripts/fetch-upstream.sh",
+    "LICENSE",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "engines": {
     "node": ">=20.18.1"
   },
   "scripts": {
+    "prebuild": "node scripts/clean.mjs",
     "build": "tsc -p tsconfig.build.json",
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
     "dev": "tsx src/index.ts",

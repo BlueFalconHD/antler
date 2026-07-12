@@ -13,11 +13,13 @@ describe("durable sync state", () => {
     roots.push(root);
     const store = new StateStore(path.join(root, ".moose_proxy"));
     await store.initialize("project");
-    await store.update((state) => {
-      state.journal.operation = { id: "operation", action: "upload", path: "a.txt", startedAt: "now" };
-    });
+    await store.recordJournal({ id: "operation", action: "upload", path: "a.txt", startedAt: "now" });
     const loaded = await new StateStore(path.join(root, ".moose_proxy")).load();
     expect(loaded.journal.operation?.path).toBe("a.txt");
+    await store.commit((state) => {
+      state.lastReconciledAt = "now";
+    });
+    expect(Object.keys((await new StateStore(path.join(root, ".moose_proxy")).load()).journal)).toHaveLength(0);
     if (process.platform !== "win32") {
       expect((await fs.stat(path.join(root, ".moose_proxy"))).mode & 0o077).toBe(0);
       expect((await fs.stat(path.join(root, ".moose_proxy", "state.json"))).mode & 0o077).toBe(0);

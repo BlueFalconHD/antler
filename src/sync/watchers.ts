@@ -21,10 +21,12 @@ export function watchLocal(
         return;
       }
       try {
-        const relative = normalizeRelativePath(Buffer.isBuffer(rawName) ? rawName.toString("utf8") : rawName);
-        if (!relative || isHardExcluded(relative) || path.basename(relative).startsWith(".moose_proxy-tmp-")) {
+        const rawRelative = Buffer.isBuffer(rawName) ? rawName.toString("utf8") : rawName;
+        if (isHardExcluded(rawRelative) || path.basename(rawRelative).startsWith(".moose_proxy-tmp-")) {
           return;
         }
+        const relative = normalizeRelativePath(rawRelative);
+        if (!relative) return;
         onPaths([relative]);
       } catch (error) {
         onError(error instanceof Error ? error : new Error(String(error)));
@@ -53,8 +55,14 @@ export async function watchRemote(
     (changes) => {
       try {
         const paths = changes
-          .map((change) => relativeRemotePath(root, change.path))
-          .filter((entry) => entry && !isHardExcluded(entry));
+          .map((change) => {
+            if (change.path !== root && !change.path.startsWith(`${root}/`)) {
+              throw new Error("Remote watcher path escapes the configured root");
+            }
+            const rawRelative = change.path === root ? "" : change.path.slice(root.length + 1);
+            return isHardExcluded(rawRelative) ? undefined : relativeRemotePath(root, change.path);
+          })
+          .filter((entry): entry is string => Boolean(entry));
         if (paths.length > 0) {
           onPaths(paths);
         }

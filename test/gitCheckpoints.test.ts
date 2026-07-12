@@ -32,5 +32,14 @@ describe("Git safety checkpoints", () => {
     expect(names).toContain("tracked.txt");
     expect(names).toContain("untracked.txt");
     expect(names).not.toContain(".moose_proxy");
+    expect((await checkpoints.list())[0]?.reference).toBe(reference);
+
+    await fs.writeFile(path.join(root, "tracked.txt"), "after checkpoint");
+    const indexBeforeRestore = (await execute("git", ["-C", root, "diff", "--cached"])).stdout;
+    const preRestore = await checkpoints.restore(reference!, "tracked.txt");
+    expect(await fs.readFile(path.join(root, "tracked.txt"), "utf8")).toBe("modified");
+    expect((await execute("git", ["-C", root, "diff", "--cached"])).stdout).toBe(indexBeforeRestore);
+    expect(preRestore).toMatch(/^refs\/moose-proxy\/checkpoints\//);
+    await expect(checkpoints.restore(reference!, "../escape")).rejects.toThrow();
   });
 });

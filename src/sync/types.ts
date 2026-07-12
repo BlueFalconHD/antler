@@ -63,6 +63,8 @@ export interface SyncEvent {
     | "mkdir-remote"
     | "delete-local"
     | "delete-remote"
+    | "rename-local"
+    | "rename-remote"
     | "conflict"
     | "pending-delete"
     | "unchanged";
@@ -87,4 +89,5 @@ export interface TreeEndpoint {
   writeFileAtomic(relativePath: string, content: Buffer): Promise<TreeEntry>;
   mkdir(relativePath: string): Promise<TreeEntry>;
   delete(relativePath: string): Promise<void>;
+  rename(sourcePath: string, destinationPath: string): Promise<TreeEntry>;
 }

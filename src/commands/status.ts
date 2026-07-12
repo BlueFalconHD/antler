@@ -66,3 +66,34 @@ export async function listConflicts(localRoot: string, json: boolean): Promise<v
     process.stdout.write("\nResolve with `moose-proxy resolve <path> --take local|remote`.\n");
   }
 }
+
+export async function listCheckpoints(localRoot: string, json: boolean): Promise<void> {
+  const config = await loadProjectConfig(localRoot);
+  const stateDirectory = path.join(localRoot, STATE_DIRECTORY_NAME);
+  const git = new GitCheckpoints(localRoot, stateDirectory, config.git.enabled && config.git.checkpoints);
+  const status = await git.initialize();
+  if (!status.available) throw new Error(status.reason ?? "Git checkpoints are unavailable");
+  const checkpoints = await git.list();
+  if (json) {
+    process.stdout.write(`${JSON.stringify(checkpoints, null, 2)}\n`);
+  } else if (checkpoints.length === 0) {
+    process.stdout.write("No safety checkpoints have been created yet.\n");
+  } else {
+    for (const checkpoint of checkpoints) {
+      process.stdout.write(`${checkpoint.createdAt}  ${checkpoint.reference}\n`);
+    }
+  }
+}
+
+export async function restoreCheckpoint(
+  localRoot: string,
+  reference: string,
+  relativePath: string,
+): Promise<string> {
+  const config = await loadProjectConfig(localRoot);
+  const stateDirectory = path.join(localRoot, STATE_DIRECTORY_NAME);
+  const git = new GitCheckpoints(localRoot, stateDirectory, config.git.enabled && config.git.checkpoints);
+  const status = await git.initialize();
+  if (!status.available) throw new Error(status.reason ?? "Git checkpoints are unavailable");
+  return git.restore(reference, relativePath);
+}

@@ -4,3 +4,4 @@ reference/upstream/
 *.log
 .DS_Store
 .SRProject.plist
+.moose_proxy/

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { SyncState } from "./types.js";
+import type { JournalRecord, SyncState } from "./types.js";
 
 export const STATE_FILE_NAME = "state.json";
 
@@ -47,6 +47,7 @@ export class StateStore {
     if (!isSyncState(parsed)) {
       throw new Error("Sync state is malformed or uses an unsupported schema; no files were changed");
     }
+    await this.loadJournal(parsed);
     this.state = parsed;
     return parsed;
   }
@@ -58,18 +59,39 @@ export class StateStore {
     return this.state;
   }
 
-  public update(mutator: (state: MutableSyncState) => void): Promise<void> {
+  public mutate(mutator: (state: MutableSyncState) => void): void {
+    mutator(this.current() as MutableSyncState);
+  }
+
+  public recordJournal(record: JournalRecord): Promise<void> {
     const run = this.writes.then(async () => {
-      const state = this.current();
-      mutator(state as MutableSyncState);
-      await this.writeAtomic(state);
+      await this.ensureDirectory();
+      const handle = await fs.open(this.journalPath(), "a", 0o600);
+      try {
+        await handle.writeFile(`${JSON.stringify(record)}\n`, "utf8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      (this.current().journal as Record<string, JournalRecord>)[record.id] = record;
     });
     this.writes = run.catch(() => undefined);
     return run;
   }
 
-  public async flush(): Promise<void> {
-    await this.writes;
+  public commit(mutator: (state: MutableSyncState) => void): Promise<void> {
+    const run = this.writes.then(async () => {
+      const next = structuredClone(this.current());
+      mutator(next as MutableSyncState);
+      for (const key of Object.keys(next.journal)) {
+        delete (next.journal as Record<string, JournalRecord>)[key];
+      }
+      await this.writeAtomic(next);
+      await fs.rm(this.journalPath(), { force: true });
+      this.state = next;
+    });
+    this.writes = run.catch(() => undefined);
+    return run;
   }
 
   private persist(): Promise<void> {
@@ -93,6 +115,32 @@ export class StateStore {
     return path.join(this.directory, STATE_FILE_NAME);
   }
 
+  private journalPath(): string {
+    return path.join(this.directory, "journal.jsonl");
+  }
+
+  private async loadJournal(state: SyncState): Promise<void> {
+    let contents: string;
+    try {
+      contents = await fs.readFile(this.journalPath(), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    for (const line of contents.split("\n").filter(Boolean)) {
+      let value: unknown;
+      try {
+        value = JSON.parse(line);
+      } catch {
+        throw new Error("Sync operation journal is malformed; no files were changed");
+      }
+      if (!isJournalRecord(value)) {
+        throw new Error("Sync operation journal is malformed; no files were changed");
+      }
+      (state.journal as Record<string, JournalRecord>)[value.id] = value;
+    }
+  }
+
   private async writeAtomic(state: SyncState): Promise<void> {
     await this.ensureDirectory();
     const temporary = path.join(this.directory, `.state-${randomUUID()}.tmp`);
@@ -103,7 +151,12 @@ export class StateStore {
     } finally {
       await handle.close();
     }
-    await fs.rename(temporary, this.filePath());
+    try {
+      await fs.rename(temporary, this.filePath());
+    } catch (error) {
+      await fs.rm(temporary, { force: true });
+      throw error;
+    }
   }
 }
 
@@ -126,5 +179,15 @@ function isSyncState(value: unknown): value is SyncState {
     isObject(value.conflicts) &&
     isObject(value.pendingDeletes) &&
     isObject(value.journal)
+  );
+}
+
+function isJournalRecord(value: unknown): value is JournalRecord {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.action === "string" &&
+    typeof value.path === "string" &&
+    typeof value.startedAt === "string"
   );
 }

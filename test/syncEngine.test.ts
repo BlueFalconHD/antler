@@ -46,6 +46,13 @@ class MemoryTree implements TreeEndpoint {
     return this.entry(path)!;
   }
   public async delete(path: string): Promise<void> { this.values.delete(path); }
+  public async rename(source: string, destination: string): Promise<TreeEntry> {
+    const value = this.values.get(source);
+    if (!value || this.values.has(destination)) throw new Error("invalid rename");
+    this.values.delete(source);
+    this.values.set(destination, { ...value, revision: this.clock++ });
+    return this.entry(destination)!;
+  }
 
   private entry(path: string): TreeEntry | undefined {
     const value = this.values.get(path);
@@ -109,11 +116,14 @@ describe("bidirectional sync engine", () => {
     const remote = new MemoryTree("remote");
     local.seedFile("file.txt", "local");
     remote.seedFile("file.txt", "remote");
-    const { engine } = await setup(local, remote);
+    const { engine, state } = await setup(local, remote);
     const result = await engine.reconcile();
     expect(result.conflicts).toBe(1);
     expect(local.text("file.txt")).toBe("local");
     expect(remote.text("file.txt")).toBe("remote");
+    await engine.resolve("file.txt", "local");
+    expect(remote.text("file.txt")).toBe("local");
+    expect(Object.keys((await new StateStore(state.directory).load()).conflicts)).toHaveLength(0);
   });
 
   it("propagates one-sided edits and checkpoints inbound overwrites", async () => {
@@ -166,13 +176,74 @@ describe("bidirectional sync engine", () => {
   it("leaves a journal record when a destination write fails and recovers on full reconcile", async () => {
     const local = new MemoryTree("local");
     const remote = new MemoryTree("remote");
+    local.seedFile("file.txt", "base");
+    remote.seedFile("file.txt", "base");
+    const { engine, state } = await setup(local, remote);
+    await engine.reconcile();
     local.seedFile("file.txt", "value");
     remote.failNextWrite = true;
-    const { engine, state } = await setup(local, remote);
     await expect(engine.reconcile()).rejects.toThrow(/injected/);
     expect(Object.keys(state.current().journal)).toHaveLength(1);
     await engine.reconcile();
     expect(remote.text("file.txt")).toBe("value");
     expect(Object.keys(state.current().journal)).toHaveLength(0);
+  });
+
+  it("creates missing destination parents during a targeted new-file event", async () => {
+    const local = new MemoryTree("local");
+    const remote = new MemoryTree("remote");
+    local.seedDirectory("nested");
+    local.seedFile("nested/file.txt", "value");
+    const { engine } = await setup(local, remote);
+    await engine.reconcile({ paths: ["nested/file.txt"] });
+    expect((await remote.stat("nested"))?.kind).toBe("directory");
+    expect(remote.text("nested/file.txt")).toBe("value");
+  });
+
+  it("coalesces concurrent inbound changes into one Git checkpoint", async () => {
+    const local = new MemoryTree("local");
+    const remote = new MemoryTree("remote");
+    for (const file of ["a.txt", "b.txt"]) {
+      local.seedFile(file, "base");
+      remote.seedFile(file, "base");
+    }
+    const { engine, checkpoints } = await setup(local, remote);
+    await engine.reconcile();
+    remote.seedFile("a.txt", "remote a");
+    remote.seedFile("b.txt", "remote b");
+    await engine.reconcile({ paths: ["a.txt", "b.txt"] });
+    expect(checkpoints).toHaveLength(1);
+    expect(local.text("a.txt")).toBe("remote a");
+    expect(local.text("b.txt")).toBe("remote b");
+  });
+
+  it("propagates an unambiguous local rename without a pending deletion", async () => {
+    const local = new MemoryTree("local");
+    const remote = new MemoryTree("remote");
+    local.seedFile("old.txt", "same bytes");
+    remote.seedFile("old.txt", "same bytes");
+    const { engine } = await setup(local, remote);
+    await engine.reconcile();
+    await local.rename("old.txt", "new.txt");
+    const result = await engine.reconcile({ paths: ["old.txt", "new.txt"] });
+    expect(result.pendingDeletes).toBe(0);
+    expect(remote.text("old.txt")).toBeUndefined();
+    expect(remote.text("new.txt")).toBe("same bytes");
+    expect(result.events.some((event) => event.type === "rename-remote")).toBe(true);
+  });
+
+  it("propagates an unambiguous remote rename with one local checkpoint", async () => {
+    const local = new MemoryTree("local");
+    const remote = new MemoryTree("remote");
+    local.seedFile("old.txt", "same bytes");
+    remote.seedFile("old.txt", "same bytes");
+    const { engine, checkpoints } = await setup(local, remote);
+    await engine.reconcile();
+    await remote.rename("old.txt", "new.txt");
+    const result = await engine.reconcile({ paths: ["old.txt", "new.txt"] });
+    expect(result.pendingDeletes).toBe(0);
+    expect(local.text("old.txt")).toBeUndefined();
+    expect(local.text("new.txt")).toBe("same bytes");
+    expect(checkpoints).toHaveLength(1);
   });
 });

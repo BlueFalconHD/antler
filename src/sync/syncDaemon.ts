@@ -34,7 +34,13 @@ export class SyncDaemon {
       (error) => this.handleWatcherError("local", error),
     );
     await this.installRemoteWatcher();
-    const initial = await this.options.engine.reconcile();
+    this.running = true;
+    let initial;
+    try {
+      initial = await this.options.engine.reconcile();
+    } finally {
+      this.running = false;
+    }
     this.options.logger.success("Initial reconciliation complete", {
       conflicts: initial.conflicts,
       pendingDeletes: initial.pendingDeletes,
@@ -45,6 +51,7 @@ export class SyncDaemon {
       this.scheduleDrain();
     }, this.options.reconciliationIntervalSeconds * 1000);
     this.options.manager.on("disconnect", this.onDisconnect);
+    if (this.fullRequested || this.pendingPaths.size > 0) this.scheduleDrain();
   }
 
   public async stop(): Promise<void> {
@@ -123,9 +130,10 @@ export class SyncDaemon {
   private handleWatcherError(side: "local" | "remote", error: Error): void {
     this.options.logger.warn(`${side === "local" ? "Local" : "Remote"} watcher requested reconciliation`, { error });
     this.fullRequested = true;
-    if (side === "remote" && isConnectionError(error)) {
+    if (side === "remote") {
       void this.reconnect();
     } else {
+      void this.restartLocalWatcher();
       this.scheduleDrain();
     }
   }
@@ -136,6 +144,16 @@ export class SyncDaemon {
       this.options.remoteRoot,
       (paths) => this.schedule(paths),
       (error) => this.handleWatcherError("remote", error),
+    );
+  }
+
+  private async restartLocalWatcher(): Promise<void> {
+    await this.localWatcher?.close().catch(() => undefined);
+    if (this.stopped) return;
+    this.localWatcher = watchLocal(
+      this.options.localRoot,
+      (paths) => this.schedule(paths),
+      (error) => this.handleWatcherError("local", error),
     );
   }
 

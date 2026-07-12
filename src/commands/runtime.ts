@@ -142,6 +142,8 @@ function logSyncEvent(logger: Logger, event: SyncEvent): void {
     case "mkdir-remote": logger.success(`↑ Created remote directory ${event.path}`); break;
     case "delete-local": logger.warn(`Deleted local ${event.path}`); break;
     case "delete-remote": logger.warn(`Deleted remote ${event.path}`); break;
+    case "rename-local": logger.success(`↓ Renamed local ${event.path}`, details); break;
+    case "rename-remote": logger.success(`↑ Renamed remote ${event.path}`, details); break;
     case "conflict": logger.warn(`Conflict: ${event.path} — neither copy was changed`, details); break;
     case "pending-delete": logger.warn(`Deletion awaiting approval: ${event.path}`, details); break;
     case "baseline": logger.debug(`Baselined ${event.path}`, details); break;

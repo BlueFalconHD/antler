@@ -162,6 +162,25 @@ export class RemoteTree implements TreeEndpoint {
     await client.delete(remotePath(this.root, normalized), false);
   }
 
+  public async rename(sourcePath: string, destinationPath: string): Promise<TreeEntry> {
+    const source = normalizeRelativePath(sourcePath);
+    const destination = normalizeRelativePath(destinationPath);
+    if (!source || !destination) throw new Error("Cannot rename a sync root");
+    const sourceEntry = await this.stat(source);
+    if (!sourceEntry) throw new Error(`Remote rename source is missing: ${source}`);
+    if (await this.stat(destination)) throw new Error(`Remote rename destination already exists: ${destination}`);
+    const destinationParent = path.posix.dirname(destination) === "." ? "" : path.posix.dirname(destination);
+    await this.verifyExisting(destinationParent, "directory");
+    await this.verifyExisting(source, sourceEntry.kind);
+    const { client } = await this.options.manager.get();
+    await client.rename(remotePath(this.root, source), remotePath(this.root, destination), false);
+    const renamed = await this.stat(destination);
+    if (!renamed || renamed.kind !== sourceEntry.kind) {
+      throw new Error(`Remote rename verification failed: ${source} -> ${destination}`);
+    }
+    return renamed;
+  }
+
   private async statWithClient(client: RemoteFileSystemClient, relativePath: string): Promise<TreeEntry | undefined> {
     const normalized = normalizeRelativePath(relativePath);
     try {

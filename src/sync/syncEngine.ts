@@ -45,7 +45,7 @@ interface FileStatus {
 
 interface RunContext {
   readonly events: SyncEvent[];
-  checkpointCreated: boolean;
+  checkpoint: Promise<void> | undefined;
   transferredBytes: number;
 }
 
@@ -104,7 +104,9 @@ export class SyncEngine {
       }
     }
 
-    const context: RunContext = { events: [], checkpointCreated: false, transferredBytes: 0 };
+    const context: RunContext = { events: [], checkpoint: undefined, transferredBytes: 0 };
+    const renamed = await this.detectFileRenames(keys, localEntries, remoteEntries, context);
+    for (const path of renamed) keys.delete(path);
     const directoryDeletes: Array<{ path: string; side: "local" | "remote" }> = [];
     const directoryKeys = [...keys]
       .filter((key) =>
@@ -143,13 +145,8 @@ export class SyncEngine {
       await this.performDelete(deletion.path, deletion.side, context);
     }
 
-    await this.options.state.update((current) => {
+    await this.options.state.commit((current) => {
       current.lastReconciledAt = new Date().toISOString();
-      if (!paths) {
-        for (const key of Object.keys(current.journal)) {
-          delete current.journal[key];
-        }
-      }
     });
     const current = this.options.state.current();
     return {
@@ -176,7 +173,7 @@ export class SyncEngine {
     if (!local || !remote || local.kind !== "file" || remote.kind !== "file") {
       throw new Error("Type and deletion conflicts require manual filesystem changes before resolution");
     }
-    const context: RunContext = { events: [], checkpointCreated: false, transferredBytes: 0 };
+    const context: RunContext = { events: [], checkpoint: undefined, transferredBytes: 0 };
     const source = take === "local" ? this.options.local : this.options.remote;
     const destination = take === "local" ? this.options.remote : this.options.local;
     const stable = await this.readStable(source, normalized);
@@ -185,10 +182,11 @@ export class SyncEngine {
     if (take === "remote") {
       await this.ensureCheckpoint(context, `resolve-${normalized}`);
     }
+    const journalId = await this.beginJournal(`resolve-${take}`, normalized);
     const written = await destination.writeFileAtomic(normalized, stable.content);
     const localEntry = take === "local" ? stable.entry : written;
     const remoteEntry = take === "local" ? written : stable.entry;
-    await this.storeBaseline(normalized, stable.hash, localEntry, remoteEntry);
+    await this.storeBaseline(normalized, stable.hash, localEntry, remoteEntry, journalId);
     const event: SyncEvent = {
       type: take === "local" ? "upload" : "download",
       path: normalized,
@@ -196,6 +194,9 @@ export class SyncEngine {
       reason: `resolved using ${take}`,
     };
     this.emit(context, event);
+    await this.options.state.commit((state) => {
+      state.lastReconciledAt = new Date().toISOString();
+    });
     return event;
   }
 
@@ -350,9 +351,9 @@ export class SyncEngine {
       return;
     }
     if (local) {
-      await this.transfer(path, this.options.local, this.options.remote, undefined, context);
+      await this.transfer(path, this.options.local, this.options.remote, undefined, context, false);
     } else if (remote) {
-      await this.transfer(path, this.options.remote, this.options.local, undefined, context);
+      await this.transfer(path, this.options.remote, this.options.local, undefined, context, false);
     }
   }
 
@@ -362,12 +363,14 @@ export class SyncEngine {
     destination: TreeEndpoint,
     knownFile: StableFile | undefined,
     context: RunContext,
+    journal = true,
   ): Promise<void> {
     const started = performance.now();
     const file = knownFile ?? await this.readStable(source, path);
     await this.options.objects.put(file.content);
     const operation = source.side === "local" ? "upload" : "download";
-    const journalId = await this.beginJournal(operation, path);
+    const journalId = journal ? await this.beginJournal(operation, path) : undefined;
+    await this.ensureDestinationParents(path, source, destination);
     const written = await destination.writeFileAtomic(path, file.content);
     const local = source.side === "local" ? file.entry : written;
     const remote = source.side === "remote" ? file.entry : written;
@@ -392,7 +395,7 @@ export class SyncEngine {
     const endpoint = side === "local" ? this.options.local : this.options.remote;
     const journalId = await this.beginJournal(`delete-${side}`, path);
     await endpoint.delete(path);
-    await this.options.state.update((state) => {
+    this.options.state.mutate((state) => {
       delete state.entries[path];
       delete state.conflicts[path];
       delete state.pendingDeletes[pendingKey(path, side)];
@@ -439,11 +442,19 @@ export class SyncEngine {
     knownLocal?: StableFile,
     knownRemote?: StableFile,
   ): Promise<void> {
+    const existing = this.options.state.current().conflicts[path];
+    if (
+      existing?.reason === reason &&
+      sameFingerprint(local, existing.local) &&
+      sameFingerprint(remote, existing.remote)
+    ) {
+      return;
+    }
     const localFile = local?.kind === "file" ? knownLocal ?? await this.readStable(this.options.local, path) : undefined;
     const remoteFile = remote?.kind === "file" ? knownRemote ?? await this.readStable(this.options.remote, path) : undefined;
     if (localFile) await this.options.objects.put(localFile.content);
     if (remoteFile) await this.options.objects.put(remoteFile.content);
-    await this.options.state.update((state) => {
+    this.options.state.mutate((state) => {
       state.conflicts[path] = {
         path,
         reason,
@@ -465,8 +476,13 @@ export class SyncEngine {
     expectedHash: string | undefined,
     context: RunContext,
   ): Promise<void> {
-    await this.options.state.update((state) => {
-      state.pendingDeletes[pendingKey(path, existingSide)] = {
+    const key = pendingKey(path, existingSide);
+    const existing = this.options.state.current().pendingDeletes[key];
+    if (existing?.expectedHash === expectedHash) {
+      return;
+    }
+    this.options.state.mutate((state) => {
+      state.pendingDeletes[key] = {
         path,
         side: existingSide,
         detectedAt: new Date().toISOString(),
@@ -496,7 +512,17 @@ export class SyncEngine {
       local: fingerprint(local),
       remote: fingerprint(remote),
     };
-    await this.options.state.update((state) => {
+    const current = this.options.state.current();
+    if (
+      !journalId &&
+      sameStoredEntry(current.entries[path], entry) &&
+      !current.conflicts[path] &&
+      !current.pendingDeletes[pendingKey(path, "local")] &&
+      !current.pendingDeletes[pendingKey(path, "remote")]
+    ) {
+      return;
+    }
+    this.options.state.mutate((state) => {
       state.entries[path] = entry;
       delete state.conflicts[path];
       delete state.pendingDeletes[pendingKey(path, "local")];
@@ -506,7 +532,7 @@ export class SyncEngine {
   }
 
   private async removeState(path: string): Promise<void> {
-    await this.options.state.update((state) => {
+    this.options.state.mutate((state) => {
       delete state.entries[path];
       delete state.conflicts[path];
       delete state.pendingDeletes[pendingKey(path, "local")];
@@ -516,18 +542,135 @@ export class SyncEngine {
 
   private async beginJournal(action: string, path: string): Promise<string> {
     const id = randomUUID();
-    await this.options.state.update((state) => {
-      state.journal[id] = { id, action, path, startedAt: new Date().toISOString() };
-    });
+    await this.options.state.recordJournal({ id, action, path, startedAt: new Date().toISOString() });
     return id;
   }
 
   private async ensureCheckpoint(context: RunContext, label: string): Promise<void> {
-    if (context.checkpointCreated) {
-      return;
+    if (!context.checkpoint) {
+      context.checkpoint = this.options.git.checkpoint(label).then(() => undefined);
     }
-    await this.options.git.checkpoint(label);
-    context.checkpointCreated = true;
+    await context.checkpoint;
+  }
+
+  private async detectFileRenames(
+    keys: ReadonlySet<string>,
+    localEntries: ReadonlyMap<string, TreeEntry>,
+    remoteEntries: ReadonlyMap<string, TreeEntry>,
+    context: RunContext,
+  ): Promise<Set<string>> {
+    const state = this.options.state.current();
+    const localDeleted = new Map<string, string[]>();
+    const remoteDeleted = new Map<string, string[]>();
+    const localAdded: string[] = [];
+    const remoteAdded: string[] = [];
+
+    for (const path of keys) {
+      const stored = state.entries[path];
+      const local = localEntries.get(path);
+      const remote = remoteEntries.get(path);
+      if (!stored && local?.kind === "file" && !remote) localAdded.push(path);
+      if (!stored && remote?.kind === "file" && !local) remoteAdded.push(path);
+      if (stored?.kind !== "file" || !stored.baseHash) continue;
+      if (!local && remote?.kind === "file" && sameFingerprint(remote, stored.remote)) {
+        addGrouped(localDeleted, stored.baseHash, path);
+      }
+      if (!remote && local?.kind === "file" && sameFingerprint(local, stored.local)) {
+        addGrouped(remoteDeleted, stored.baseHash, path);
+      }
+    }
+
+    const consumed = new Set<string>();
+    if (localDeleted.size > 0) {
+      await this.matchRenames(
+        localAdded,
+        localDeleted,
+        this.options.local,
+        this.options.remote,
+        localEntries,
+        consumed,
+        context,
+      );
+    }
+    if (remoteDeleted.size > 0) {
+      await this.matchRenames(
+        remoteAdded,
+        remoteDeleted,
+        this.options.remote,
+        this.options.local,
+        remoteEntries,
+        consumed,
+        context,
+      );
+    }
+    return consumed;
+  }
+
+  private async matchRenames(
+    addedPaths: readonly string[],
+    deletedByHash: ReadonlyMap<string, readonly string[]>,
+    source: TreeEndpoint,
+    destination: TreeEndpoint,
+    sourceEntries: ReadonlyMap<string, TreeEntry>,
+    consumed: Set<string>,
+    context: RunContext,
+  ): Promise<void> {
+    const additions = await mapLimit(addedPaths, this.options.concurrency, async (path) => ({
+      path,
+      file: await this.readStable(source, path),
+    }));
+    const additionsByHash = new Map<string, Array<{ path: string; file: StableFile }>>();
+    for (const addition of additions) addGrouped(additionsByHash, addition.file.hash, addition);
+
+    for (const [hash, oldPaths] of deletedByHash) {
+      const newPaths = additionsByHash.get(hash);
+      if (oldPaths.length !== 1 || newPaths?.length !== 1) continue;
+      const oldPath = oldPaths[0]!;
+      const addition = newPaths[0]!;
+      if (consumed.has(oldPath) || consumed.has(addition.path)) continue;
+      const sourceEntry = sourceEntries.get(addition.path) ?? addition.file.entry;
+      if (destination.side === "local") {
+        await this.ensureCheckpoint(context, `rename-${oldPath}`);
+      }
+      await this.options.objects.put(addition.file.content);
+      const journalId = await this.beginJournal(`rename-${destination.side}`, `${oldPath} -> ${addition.path}`);
+      await this.ensureDestinationParents(addition.path, source, destination);
+      const destinationEntry = await destination.rename(oldPath, addition.path);
+      this.options.state.mutate((state) => {
+        delete state.entries[oldPath];
+        delete state.conflicts[oldPath];
+        delete state.pendingDeletes[pendingKey(oldPath, "local")];
+        delete state.pendingDeletes[pendingKey(oldPath, "remote")];
+      });
+      const local = source.side === "local" ? sourceEntry : destinationEntry;
+      const remote = source.side === "remote" ? sourceEntry : destinationEntry;
+      await this.storeBaseline(addition.path, hash, local, remote, journalId);
+      consumed.add(oldPath);
+      consumed.add(addition.path);
+      this.emit(context, {
+        type: destination.side === "local" ? "rename-local" : "rename-remote",
+        path: `${oldPath} → ${addition.path}`,
+      });
+    }
+  }
+
+  private async ensureDestinationParents(
+    path: string,
+    source: TreeEndpoint,
+    destination: TreeEndpoint,
+  ): Promise<void> {
+    const pieces = path.split("/");
+    for (let index = 1; index < pieces.length; index += 1) {
+      const parent = pieces.slice(0, index).join("/");
+      if (await destination.stat(parent)) {
+        continue;
+      }
+      const sourceParent = await source.stat(parent);
+      if (!sourceParent || sourceParent.kind !== "directory") {
+        throw new Error(`Cannot create missing destination parent: ${parent}`);
+      }
+      await destination.mkdir(parent);
+    }
   }
 
   private emit(context: RunContext, event: SyncEvent): void {
@@ -562,4 +705,19 @@ function sameFingerprint(
 
 function pendingKey(path: string, side: "local" | "remote"): string {
   return `${side}:${path}`;
+}
+
+function sameStoredEntry(left: StoredEntry | undefined, right: StoredEntry): boolean {
+  return (
+    left?.kind === right.kind &&
+    left.baseHash === right.baseHash &&
+    sameFingerprint(left.local, right.local) &&
+    sameFingerprint(left.remote, right.remote)
+  );
+}
+
+function addGrouped<Value>(map: Map<string, Value[]>, key: string, value: Value): void {
+  const values = map.get(key);
+  if (values) values.push(value);
+  else map.set(key, [value]);
 }

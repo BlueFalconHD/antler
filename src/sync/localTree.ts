@@ -180,6 +180,29 @@ export class LocalTree implements TreeEndpoint {
     }
   }
 
+  public async rename(sourcePath: string, destinationPath: string): Promise<TreeEntry> {
+    const source = normalizeRelativePath(sourcePath);
+    const destination = normalizeRelativePath(destinationPath);
+    if (!source || !destination) throw new Error("Cannot rename a sync root");
+    const sourceEntry = await this.stat(source);
+    if (!sourceEntry) throw new Error(`Local rename source is missing: ${source}`);
+    if (await this.stat(destination)) throw new Error(`Local rename destination already exists: ${destination}`);
+    const parent = path.posix.dirname(destination) === "." ? "" : path.posix.dirname(destination);
+    await this.ensureDirectory(parent);
+    const sourceAbsolute = localPath(this.root, source);
+    const destinationAbsolute = localPath(this.root, destination);
+    await Promise.all([
+      this.verifyInsideRoot(path.dirname(sourceAbsolute)),
+      this.verifyInsideRoot(path.dirname(destinationAbsolute)),
+    ]);
+    await fs.rename(sourceAbsolute, destinationAbsolute);
+    const renamed = await this.stat(destination);
+    if (!renamed || renamed.kind !== sourceEntry.kind) {
+      throw new Error(`Local rename verification failed: ${source} -> ${destination}`);
+    }
+    return renamed;
+  }
+
   private async ensureDirectory(relativePath: string): Promise<void> {
     let current = this.root;
     for (const piece of normalizeRelativePath(relativePath).split("/").filter(Boolean)) {

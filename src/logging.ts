@@ -28,7 +28,7 @@ export class Logger {
     options: { readonly format?: LogFormat; readonly color?: boolean } = {},
   ) {
     this.format = options.format ?? (process.stderr.isTTY ? "pretty" : "plain");
-    this.color = options.color ?? (this.format === "pretty" && !process.env.NO_COLOR);
+    this.color = this.format === "pretty" && (options.color ?? !process.env.NO_COLOR);
   }
 
   public debug(message: string, fields: Record<string, unknown> = {}): void {

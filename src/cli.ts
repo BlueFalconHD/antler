@@ -4,7 +4,7 @@ import { doctorProject } from "./commands/doctor.js";
 import { initializeProject, type InitOptions } from "./commands/init.js";
 import { resolveConflict } from "./commands/resolve.js";
 import { startProject } from "./commands/start.js";
-import { listConflicts, projectStatus } from "./commands/status.js";
+import { listCheckpoints, listConflicts, projectStatus, restoreCheckpoint } from "./commands/status.js";
 import { syncProjectOnce } from "./commands/sync.js";
 import { compatibilityProfiles, type CompatibilityProfileName } from "./compatibility/profiles.js";
 import { Logger, type LogFormat, type LogLevel } from "./logging.js";
@@ -115,6 +115,25 @@ export async function runCli(argv: readonly string[]): Promise<void> {
         options.passwordFile,
         loggerFor(program),
       );
+    });
+
+  program
+    .command("checkpoints")
+    .description("List hidden Git safety snapshots created before inbound changes")
+    .argument("[directory]", "project directory or any child", ".")
+    .action(async (directory: string) => {
+      await listCheckpoints(await existingRoot(directory), program.opts<GlobalOptions>().format === "json");
+    });
+
+  program
+    .command("restore")
+    .description("Restore one local path from a safety checkpoint without changing the Git index")
+    .argument("<checkpoint>", "full refs/moose-proxy/checkpoints/... reference")
+    .argument("<path>", "root-relative file path")
+    .option("--project <directory>", "project directory or any child", ".")
+    .action(async (checkpoint: string, relativePath: string, options: { project: string }) => {
+      const safety = await restoreCheckpoint(await existingRoot(options.project), checkpoint, relativePath);
+      loggerFor(program).success(`Restored ${relativePath}`, { preRestoreCheckpoint: safety });
     });
 
   program
