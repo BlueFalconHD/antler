@@ -16,8 +16,9 @@ bun run build:exe
 .\dist\antler.exe --version
 ```
 
-To build the Windows x64 executable from macOS or Linux, run
-`bun run build:exe:windows`. The artifact is written to `dist/antler.exe`.
+Cross-build x64 executables with `bun run build:exe:linux` or
+`bun run build:exe:windows`. Artifacts are written to `dist/antler` and
+`dist/antler.exe`, respectively.
 
 `dist/antler` and `dist/antler.exe` are [Bun standalone executables](https://bun.sh/docs/bundler/executables)
 containing Antler, its dependencies, and the Bun runtime. Destination machines

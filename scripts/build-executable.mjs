@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-const supportedTargets = new Set(["bun-windows-x64"]);
+const supportedTargets = new Set(["bun-linux-x64", "bun-windows-x64"]);
 const target = process.argv[2];
 if (target && !supportedTargets.has(target)) {
   throw new Error(`Unsupported executable target: ${target}`);
