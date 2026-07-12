@@ -18,6 +18,19 @@ function remote(stats: Record<string, RemoteStat>): RemoteFileSystemClient {
   } as unknown as RemoteFileSystemClient;
 }
 
+function countingRemote(stats: Record<string, RemoteStat>, calls: string[]): RemoteFileSystemClient {
+  return {
+    stat: async (remotePath: string) => {
+      calls.push(remotePath);
+      const value = stats[remotePath];
+      if (!value) {
+        throw new RemoteRpcError("missing", "EntryNotFound (FileSystemError)");
+      }
+      return value;
+    },
+  } as unknown as RemoteFileSystemClient;
+}
+
 describe("path confinement", () => {
   it("maps the virtual root to the configured remote root", () => {
     const confinement = new PathConfinement("/srv/work", remote({}));
@@ -53,5 +66,54 @@ describe("path confinement", () => {
     );
     await expect(confinement.forCreate("/dir/new.txt")).resolves.toMatchObject({ remotePath: "/srv/work/dir/new.txt" });
     await expect(confinement.forCreate("/missing/new.txt")).rejects.toThrow();
+  });
+
+  it("verifies root ancestors once but checks only components inside the root during operations", async () => {
+    const calls: string[] = [];
+    const confinement = new PathConfinement(
+      "/home/coder/project",
+      countingRemote(
+        {
+          "/": directory,
+          "/home": directory,
+          "/home/coder": directory,
+          "/home/coder/project": directory,
+          "/home/coder/project/data": directory,
+          "/home/coder/project/data/file.txt": file,
+        },
+        calls,
+      ),
+    );
+    await confinement.verifyRoot();
+    expect(calls).toEqual(["/", "/home", "/home/coder", "/home/coder/project"]);
+    calls.length = 0;
+    await confinement.existing("/data/file.txt");
+    expect(calls).toEqual([
+      "/home/coder/project",
+      "/home/coder/project/data",
+      "/home/coder/project/data/file.txt",
+    ]);
+  });
+
+  it("stats only the child after its directory was verified", async () => {
+    const calls: string[] = [];
+    const confinement = new PathConfinement(
+      "/home/coder/project",
+      countingRemote(
+        {
+          "/home/coder/project": directory,
+          "/home/coder/project/file.txt": file,
+        },
+        calls,
+      ),
+    );
+    const parent = await confinement.existing("/");
+    calls.length = 0;
+    await expect(confinement.childOfVerifiedDirectory(parent, "file.txt")).resolves.toMatchObject({
+      clientPath: "/file.txt",
+      remotePath: "/home/coder/project/file.txt",
+    });
+    expect(calls).toEqual(["/home/coder/project/file.txt"]);
+    await expect(confinement.childOfVerifiedDirectory(parent, "../escape")).rejects.toThrow(/Parent traversal/);
   });
 });

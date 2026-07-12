@@ -45,15 +45,41 @@ export class PathConfinement {
     return stat === undefined ? mapped : { ...mapped, stat };
   }
 
+  public async childOfVerifiedDirectory(
+    parent: ResolvedRemotePath,
+    childName: string,
+  ): Promise<ResolvedRemotePath> {
+    if (!parent.stat || (parent.stat.type & FileType.Directory) === 0) {
+      throw new SftpError(SFTP_STATUS.FAILURE, "Verified parent is not a directory");
+    }
+    const components = validateClientPath(childName);
+    if (components.length !== 1 || components[0] !== childName) {
+      throw new SftpError(SFTP_STATUS.PERMISSION_DENIED, "Invalid directory entry name");
+    }
+    const clientPath = parent.clientPath === "/" ? `/${childName}` : `${parent.clientPath}/${childName}`;
+    const mapped = this.map(clientPath);
+    if (posix.dirname(mapped.remotePath) !== parent.remotePath) {
+      throw new SftpError(SFTP_STATUS.PERMISSION_DENIED, "Directory entry escapes verified parent");
+    }
+    const stat = await this.remote.stat(mapped.remotePath);
+    if ((stat.type & FileType.SymbolicLink) !== 0) {
+      throw new SftpError(SFTP_STATUS.PERMISSION_DENIED, "Symbolic links are denied by confinement policy");
+    }
+    return { ...mapped, stat };
+  }
+
   public async verifyRoot(): Promise<void> {
-    const stat = await this.inspect(this.remoteRoot, false);
+    const stat = await this.inspect(this.remoteRoot, false, pathPrefixes(this.remoteRoot));
     if (!stat || (stat.type & FileType.Directory) === 0) {
       throw new Error("configured remote root is not a directory");
     }
   }
 
-  private async inspect(remotePath: string, allowMissingFinal: boolean): Promise<RemoteStat | undefined> {
-    const prefixes = pathPrefixes(remotePath);
+  private async inspect(
+    remotePath: string,
+    allowMissingFinal: boolean,
+    prefixes = confinedPathPrefixes(this.remoteRoot, remotePath),
+  ): Promise<RemoteStat | undefined> {
     let finalStat: RemoteStat | undefined;
     for (let index = 0; index < prefixes.length; index += 1) {
       const prefix = prefixes[index];
@@ -116,6 +142,20 @@ function pathPrefixes(remotePath: string): string[] {
   let current = "";
   for (const segment of segments) {
     current += `/${segment}`;
+    prefixes.push(current);
+  }
+  return prefixes;
+}
+
+function confinedPathPrefixes(root: string, remotePath: string): string[] {
+  if (!isWithin(root, remotePath)) {
+    throw new SftpError(SFTP_STATUS.PERMISSION_DENIED, "Path escapes configured root");
+  }
+  const prefixes = [root];
+  const relative = posix.relative(root, remotePath);
+  let current = root;
+  for (const segment of relative.split("/").filter(Boolean)) {
+    current = posix.join(current, segment);
     prefixes.push(current);
   }
   return prefixes;

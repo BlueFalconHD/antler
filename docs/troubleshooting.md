@@ -93,6 +93,18 @@ accepts offset SFTP writes, but safely commits the changed file through a full
 temporary replacement. Do not force-enable the profile capability; a false
 declaration either fails closed or could corrupt a temporary patch copy.
 
+## Browsing or downloads are slow
+
+- Upgrade and rebuild before measuring; older builds repeated every configured
+  root ancestor for every listed child and forwarded every small client READ as
+  a separate remote RPC.
+- Start with `--log-level debug`. Each completed request records `operation`
+  and `durationMs` without logging paths or contents.
+- For Natizyskunk SFTP, set `privateKeyPath`, leave `useTempFile` and `openSsh`
+  false, and use a moderate `concurrency` such as 8. Huge project syncs still
+  require one remote metadata lookup per entry because VS Code 1.85.2 exposes
+  no batched stat operation.
+
 ## SFTP client reports unsupported
 
 The bridge supports conventional create mode 0644/0666 and directory mode

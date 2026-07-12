@@ -17,6 +17,7 @@ import { stagedAttributes, symlinkListingAttributes, toAttributes, toFileEntry }
 import { SftpError, SFTP_STATUS, toSftpError } from "./errors.js";
 import { HandleTable, type SftpHandle } from "./handleTable.js";
 import { PathLockManager } from "./pathLocks.js";
+import { ReadAheadFile } from "./readAheadFile.js";
 import { StagedFile } from "./stagedFile.js";
 import { matchAndVerifyClientKey, type LocalSftpAuthentication } from "./clientAuth.js";
 
@@ -24,6 +25,7 @@ const { Server, utils } = ssh2;
 const OPEN_MODE = utils.sftp.OPEN_MODE;
 const MAX_READ_BYTES = 1024 * 1024;
 const DIRECTORY_PAGE_SIZE = 100;
+const DIRECTORY_STAT_CONCURRENCY = 32;
 
 export interface SftpServerOptions {
   readonly bindAddress: string;
@@ -198,22 +200,36 @@ class SftpSubsystem {
   ) {}
 
   public install(): void {
-    this.sftp.on("REALPATH", (id, requestPath) => this.respond(id, () => this.realpath(id, requestPath)));
-    this.sftp.on("STAT", (id, requestPath) => this.respond(id, () => this.stat(id, requestPath)));
-    this.sftp.on("LSTAT", (id, requestPath) => this.respond(id, () => this.stat(id, requestPath)));
-    this.sftp.on("OPENDIR", (id, requestPath) => this.respond(id, () => this.opendir(id, requestPath)));
-    this.sftp.on("READDIR", (id, handle) => this.respond(id, () => this.readdir(id, handle)));
-    this.sftp.on("OPEN", (id, filename, flags, attrs) => this.respond(id, () => this.open(id, filename, flags, attrs)));
-    this.sftp.on("READ", (id, handle, offset, length) => this.respond(id, () => this.read(id, handle, offset, length)));
-    this.sftp.on("WRITE", (id, handle, offset, data) => this.respond(id, () => this.write(id, handle, offset, data)));
-    this.sftp.on("FSTAT", (id, handle) => this.respond(id, () => this.fstat(id, handle)));
-    this.sftp.on("FSETSTAT", (id, handle, attrs) => this.respond(id, () => this.fsetstat(id, handle, attrs)));
-    this.sftp.on("SETSTAT", (id, requestPath, attrs) => this.respond(id, () => this.setstat(id, requestPath, attrs)));
-    this.sftp.on("CLOSE", (id, handle) => this.respond(id, () => this.close(id, handle)));
-    this.sftp.on("MKDIR", (id, requestPath, attrs) => this.respond(id, () => this.mkdir(id, requestPath, attrs)));
-    this.sftp.on("REMOVE", (id, requestPath) => this.respond(id, () => this.remove(id, requestPath)));
-    this.sftp.on("RMDIR", (id, requestPath) => this.respond(id, () => this.rmdir(id, requestPath)));
-    this.sftp.on("RENAME", (id, oldPath, newPath) => this.respond(id, () => this.rename(id, oldPath, newPath)));
+    this.sftp.on("REALPATH", (id, requestPath) => this.respond(id, "REALPATH", () => this.realpath(id, requestPath)));
+    this.sftp.on("STAT", (id, requestPath) => this.respond(id, "STAT", () => this.stat(id, requestPath)));
+    this.sftp.on("LSTAT", (id, requestPath) => this.respond(id, "LSTAT", () => this.stat(id, requestPath)));
+    this.sftp.on("OPENDIR", (id, requestPath) => this.respond(id, "OPENDIR", () => this.opendir(id, requestPath)));
+    this.sftp.on("READDIR", (id, handle) => this.respond(id, "READDIR", () => this.readdir(id, handle)));
+    this.sftp.on("OPEN", (id, filename, flags, attrs) =>
+      this.respond(id, "OPEN", () => this.open(id, filename, flags, attrs)),
+    );
+    this.sftp.on("READ", (id, handle, offset, length) =>
+      this.respond(id, "READ", () => this.read(id, handle, offset, length)),
+    );
+    this.sftp.on("WRITE", (id, handle, offset, data) =>
+      this.respond(id, "WRITE", () => this.write(id, handle, offset, data)),
+    );
+    this.sftp.on("FSTAT", (id, handle) => this.respond(id, "FSTAT", () => this.fstat(id, handle)));
+    this.sftp.on("FSETSTAT", (id, handle, attrs) =>
+      this.respond(id, "FSETSTAT", () => this.fsetstat(id, handle, attrs)),
+    );
+    this.sftp.on("SETSTAT", (id, requestPath, attrs) =>
+      this.respond(id, "SETSTAT", () => this.setstat(id, requestPath, attrs)),
+    );
+    this.sftp.on("CLOSE", (id, handle) => this.respond(id, "CLOSE", () => this.close(id, handle)));
+    this.sftp.on("MKDIR", (id, requestPath, attrs) =>
+      this.respond(id, "MKDIR", () => this.mkdir(id, requestPath, attrs)),
+    );
+    this.sftp.on("REMOVE", (id, requestPath) => this.respond(id, "REMOVE", () => this.remove(id, requestPath)));
+    this.sftp.on("RMDIR", (id, requestPath) => this.respond(id, "RMDIR", () => this.rmdir(id, requestPath)));
+    this.sftp.on("RENAME", (id, oldPath, newPath) =>
+      this.respond(id, "RENAME", () => this.rename(id, oldPath, newPath)),
+    );
     this.sftp.on("READLINK", (id) => this.unsupported(id));
     this.sftp.on("SYMLINK", (id) => this.unsupported(id));
     this.sftp.on("EXTENDED", (id) => this.unsupported(id));
@@ -249,13 +265,19 @@ class SftpSubsystem {
       throw new SftpError(SFTP_STATUS.FAILURE, "Not a directory");
     }
     const rawEntries = await lease.client.readdir(resolved.remotePath);
-    const entries = await mapLimit(rawEntries, 16, async (entry): Promise<FileEntry> => {
-      if ((entry.type & FileType.SymbolicLink) !== 0 || entry.name.includes("/") || entry.name.includes("\0")) {
+    const entries = await mapLimit(rawEntries, DIRECTORY_STAT_CONCURRENCY, async (entry): Promise<FileEntry> => {
+      if (
+        (entry.type & FileType.SymbolicLink) !== 0 ||
+        entry.name === "." ||
+        entry.name === ".." ||
+        entry.name.includes("/") ||
+        entry.name.includes("\\") ||
+        entry.name.includes("\0")
+      ) {
         return toFileEntry(entry.name, symlinkListingAttributes());
       }
-      const childPath = resolved.clientPath === "/" ? `/${entry.name}` : `${resolved.clientPath}/${entry.name}`;
       try {
-        const child = await confinement.existing(childPath);
+        const child = await confinement.childOfVerifiedDirectory(resolved, entry.name);
         return toFileEntry(entry.name, toAttributes(child.stat!));
       } catch (error) {
         if (error instanceof SftpError && error.status === SFTP_STATUS.PERMISSION_DENIED) {
@@ -298,7 +320,7 @@ class SftpSubsystem {
       const remoteFd = await lease.client.openRead(resolved.remotePath);
       const handle = this.handles.add({
         kind: "read-file",
-        remoteFd,
+        file: new ReadAheadFile(lease.client, remoteFd, resolved.stat!.size),
         generation: lease.generation,
         path: resolved.remotePath,
         attrs: toAttributes(resolved.stat!),
@@ -363,8 +385,7 @@ class SftpSubsystem {
     this.manager.assertGeneration(handle.generation);
     let data: Buffer;
     if (handle.kind === "read-file") {
-      const { lease } = await this.lease();
-      data = await lease.client.read(handle.remoteFd, offset, length);
+      data = await handle.file.read(offset, length);
     } else if (handle.kind === "staged-file" && handle.readable) {
       data = await handle.file.read(offset, length);
     } else {
@@ -450,8 +471,7 @@ class SftpSubsystem {
     }
     if (handle.kind === "read-file") {
       this.manager.assertGeneration(handle.generation);
-      const { lease } = await this.lease();
-      await lease.client.close(handle.remoteFd);
+      await handle.file.close();
     } else if (handle.kind === "staged-file") {
       try {
         this.manager.assertGeneration(handle.generation);
@@ -532,12 +552,21 @@ class SftpSubsystem {
     this.sftp.status(id, SFTP_STATUS.OP_UNSUPPORTED, "Operation is not supported by remoteFilesystem");
   }
 
-  private respond(id: number, operation: () => Promise<void>): void {
-    void operation().catch((error: unknown) => {
-      const translated = toSftpError(error);
-      this.logger.warn("SFTP operation failed", { status: translated.status, error });
-      this.sftp.status(id, translated.status, translated.message);
-    });
+  private respond(id: number, name: string, operation: () => Promise<void>): void {
+    const startedAt = performance.now();
+    void operation().then(
+      () => this.logger.debug("SFTP operation completed", { operation: name, durationMs: performance.now() - startedAt }),
+      (error: unknown) => {
+        const translated = toSftpError(error);
+        this.logger.warn("SFTP operation failed", {
+          operation: name,
+          durationMs: performance.now() - startedAt,
+          status: translated.status,
+          error,
+        });
+        this.sftp.status(id, translated.status, translated.message);
+      },
+    );
   }
 
   private async cleanup(): Promise<void> {
@@ -554,8 +583,7 @@ class SftpSubsystem {
           await handle.file.abort();
         } else if (handle.kind === "read-file") {
           this.manager.assertGeneration(handle.generation);
-          const { lease } = await this.lease();
-          await lease.client.close(handle.remoteFd);
+          await handle.file.close();
         }
       } catch {
         // Cleanup is best effort after channel/connection loss.

@@ -14,6 +14,7 @@ The public baseline is code-server 4.20.1 at
 - REALPATH, STAT, and LSTAT for non-symlink paths
 - directory open, paged listing, and close
 - concurrent file handles and offset reads
+- one-megabyte read-ahead windows that coalesce small pipelined client reads
 - create, upload, offset write, append, truncate, and close
 - merged changed-range tracking, unchanged-handle elision, and atomic partial
   patching when a compatibility profile exposes non-truncating write-open
@@ -137,9 +138,15 @@ See [architecture and protocol evidence](docs/architecture.md),
 An example for [Natizyskunk's SFTP extension](https://github.com/Natizyskunk/vscode-sftp) is in
 [`examples/vscode-sftp.json`](examples/vscode-sftp.json). Copy it to
 `.vscode/sftp.json`. The password is deliberately omitted so the extension
-prompts instead of storing it in plaintext. Keep `useTempFile` and `openSsh`
-disabled because the bridge already commits staged uploads with a remote
-temporary file and rename.
+uses `privateKeyPath` instead. Replace `/Users/you` with your home directory.
+Keep `useTempFile` and `openSsh` disabled because the bridge already commits
+staged uploads with a remote temporary file and rename. `openSsh` controls the
+extension's upload strategy; it does not enable SSH-key authentication.
+
+Directory listings verify the configured root and requested parent once, then
+stat immediate children concurrently. Downloads coalesce small SFTP reads into
+one-megabyte remote reads. Use `--log-level debug` to emit operation names and
+durations without paths or file contents when diagnosing a slow client.
 
 ## ForkLift
 

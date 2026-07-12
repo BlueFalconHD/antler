@@ -122,6 +122,22 @@ target showed that `create:false` remains read-only even with `write`,
 truncates to zero. Consequently, changed files on both verified 1.85.2 targets
 use the safe full-replacement path; only unchanged handles avoid transfer.
 
+## Latency control
+
+The remote channel has nontrivial round-trip latency, so the SFTP frontend
+avoids multiplying it:
+
+- all ancestors of the configured root are verified when the bridge
+  initializes; each operation then rechecks the root and only the components
+  beneath it;
+- directory listing verifies its parent once and stats immediate children with
+  bounded concurrency instead of rechecking every parent for every child;
+- read-only handles cache two one-megabyte read-ahead windows and coalesce
+  concurrent requests for the same window, while preserving offset reads and
+  EOF behavior;
+- debug logs report the SFTP operation and elapsed milliseconds without file
+  paths or contents.
+
 ## Custom captured frame
 
 The supplied browser capture decodes as one 13-byte persistent frame with type

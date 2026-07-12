@@ -12,8 +12,23 @@ import { FileType, type RemoteFileSystemClient } from "../../src/vscode/remoteFi
 const { utils } = ssh2;
 
 class FakeRemoteAgentManager extends EventEmitter {
+  public readonly statCalls: string[] = [];
+  public readCalls = 0;
+  private readonly data = Buffer.alloc(256 * 1024, 0x64);
   private readonly client = {
-    stat: async () => ({ type: FileType.Directory, ctime: 1, mtime: 1, size: 0 }),
+    stat: async (remotePath: string) => {
+      this.statCalls.push(remotePath);
+      return remotePath === "/unused/file.bin"
+        ? { type: FileType.File, ctime: 1, mtime: 1, size: this.data.length }
+        : { type: FileType.Directory, ctime: 1, mtime: 1, size: 0 };
+    },
+    readdir: async () => [{ name: "file.bin", type: FileType.File }],
+    openRead: async () => 1,
+    read: async (_fd: number, position: number, length: number) => {
+      this.readCalls += 1;
+      return this.data.subarray(position, position + length);
+    },
+    close: async () => undefined,
   } as unknown as RemoteFileSystemClient;
 
   public async get() {
@@ -40,6 +55,7 @@ const authentication = {
     rememberedFingerprint = fingerprint;
   },
 };
+const manager = new FakeRemoteAgentManager();
 const server = new SftpBridgeServer({
   bindAddress: "127.0.0.1",
   port: 0,
@@ -48,7 +64,7 @@ const server = new SftpBridgeServer({
   authentication,
   remoteRoot: "/unused",
   stagingDirectory: path.join(directory, "stage"),
-  manager: new FakeRemoteAgentManager() as unknown as RemoteAgentManager,
+  manager: manager as unknown as RemoteAgentManager,
   logger: new Logger("error"),
 });
 const client = new ssh2.Client();
@@ -76,8 +92,41 @@ try {
   if (realPath !== "/") {
     throw new Error(`empty REALPATH resolved to ${realPath} instead of /`);
   }
+  manager.statCalls.length = 0;
+  const entries = await new Promise<ssh2.FileEntry[]>((resolve, reject) => {
+    sftp.readdir("/", (error, list) => (error ? reject(error) : resolve(list)));
+  });
+  if (entries.length !== 1 || manager.statCalls.join(",") !== "/unused,/unused/file.bin") {
+    throw new Error(`optimized directory listing made unexpected stat calls: ${manager.statCalls.join(",")}`);
+  }
+  const handle = await new Promise<Buffer>((resolve, reject) => {
+    sftp.open("/file.bin", "r", (error, opened) => (error ? reject(error) : resolve(opened)));
+  });
+  await Promise.all(
+    [0, 32 * 1024, 64 * 1024].map(
+      (position) =>
+        new Promise<void>((resolve, reject) => {
+          const buffer = Buffer.alloc(32 * 1024);
+          sftp.read(handle, buffer, 0, buffer.length, position, (error, count) => {
+            if (error) {
+              reject(error);
+            } else if (count !== buffer.length) {
+              reject(new Error(`unexpected read length ${count}`));
+            } else {
+              resolve();
+            }
+          });
+        }),
+    ),
+  );
+  if (manager.readCalls !== 1) {
+    throw new Error(`three small SFTP reads caused ${manager.readCalls} remote reads instead of one`);
+  }
+  await new Promise<void>((resolve, reject) => {
+    sftp.close(handle, (error) => (error ? reject(error) : resolve()));
+  });
   sftp.end();
-  process.stdout.write("SFTP public-key authentication and empty REALPATH smoke test passed\n");
+  process.stdout.write("SFTP authentication, optimized listing, and read-ahead smoke test passed\n");
 } finally {
   client.end();
   await server.stop();

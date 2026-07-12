@@ -15,6 +15,12 @@ provide atomic race protection against an independently privileged remote
 process replacing a checked directory with a symlink. SFTP clients cannot
 create or traverse symlinks through this bridge.
 
+All ancestors of the configured root are checked when a remote-agent
+connection is initialized. Ordinary operations recheck the root and every
+component below it. A directory listing may reuse its just-verified parent
+while statting that parent's immediate children; this does not extend beyond a
+single operation and relies on the same trusted-remote-process assumption.
+
 ## Confinement
 
 Every source and destination path is independently checked before URI creation:
@@ -72,6 +78,10 @@ leave a local staging file or an unpredictable `.moose-proxy-*.tmp` file in the
 remote destination directory, so use an encrypted local volume when file
 content requires encryption at rest and remove abandoned temporary files after
 a crash.
+
+Read-only handles retain at most two one-megabyte remote read-ahead windows in
+memory. They are cleared on close and discarded with the handle after
+connection loss.
 
 ## Unsupported behavior
 

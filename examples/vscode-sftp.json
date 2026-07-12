@@ -4,11 +4,12 @@
   "host": "127.0.0.1",
   "port": 2222,
   "username": "moose",
+  "privateKeyPath": "/Users/you/.ssh/id_ed25519",
   "remotePath": "/",
   "uploadOnSave": false,
   "downloadOnOpen": false,
   "useTempFile": false,
   "openSsh": false,
-  "concurrency": 4,
+  "concurrency": 8,
   "ignore": ["/.vscode", "/.git", ".DS_Store"]
 }

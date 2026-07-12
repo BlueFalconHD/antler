@@ -1,9 +1,10 @@
 import type { Attributes, FileEntry } from "ssh2";
+import type { ReadAheadFile } from "./readAheadFile.js";
 import type { StagedFile } from "./stagedFile.js";
 
 export interface ReadFileHandle {
   readonly kind: "read-file";
-  readonly remoteFd: number;
+  readonly file: ReadAheadFile;
   readonly generation: number;
   readonly path: string;
   readonly attrs: Attributes;
