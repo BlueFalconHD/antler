@@ -33,7 +33,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   const effectiveArguments = argv.length === 2 ? [...argv, "start"] : [...argv];
   const program = new Command()
     .name("antler")
-    .version("0.3.0")
+    .version("0.1.0")
     .description("Local-first datapack synchronization for Legitimoose")
     .addOption(new Option("--format <format>", "diagnostic output style").choices(["pretty", "plain", "json"]).default(process.stderr.isTTY ? "pretty" : "plain"))
     .addOption(new Option("--log-level <level>", "diagnostic detail").choices(["debug", "info", "warn", "error"]).default("info"))
