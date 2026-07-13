@@ -30,9 +30,9 @@ class AntlerOutput:
             self.options,
         ).run()
         if result == "skipped":
-            logger.info("Antler is cached; synchronization was skipped because credentials aren't configured.")
+            logger.info("Antler is cached. Synchronization was skipped because credentials aren't configured.")
         elif result == "disabled":
-            logger.info("Antler is cached; synchronization is disabled.")
+            logger.info("Antler is cached. Synchronization is disabled.")
 
     def _sync_root(self, ctx: Context) -> Path:
         if self.options.sync_root:
