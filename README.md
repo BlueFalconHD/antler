@@ -139,6 +139,10 @@ cd "~/projects/datapack"
 antler start
 ```
 
+While live synchronization is running, one-shot `antler sync` commands from
+another terminal are sent to that live process. This includes deletion approval,
+so the daemon can remain running while you review and approve pending deletions.
+
 Alongside basic synchronization, Antler provides a myriad of tools to resolve conflicts,
 restore backups, and more.
 
@@ -172,12 +176,24 @@ To ensure safe editing, Antler will track the hashes of local files. Local edits
 uploaded, remote edits are downloaded, and simultaneous but different edits are marked
 as conflicting.
 
-Deletion propagation from a remote is disabled by default. `status` lists pending deletions.
-After reviewing them:
+One-sided deletion propagation requires confirmation by default. `status` lists
+pending deletions. After reviewing them, this command works whether or not
+`antler start` is currently running:
 
 ```sh
 antler sync --approve-deletes
 ```
+
+To propagate one-sided deletions automatically, set the delete policy to `allow`:
+
+```sh
+antler config --delete-policy allow
+```
+
+Restart a running `antler start` process after changing the policy. New projects
+can opt in during setup with `antler init --delete-policy allow`. The delete-count
+and percentage circuit breaker still applies; override it for a reviewed batch
+with `antler sync --approve-deletes --force-large-delete`.
 
 ## Git integration and recovery
 

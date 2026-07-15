@@ -1,7 +1,9 @@
 import type { Logger } from "../logging.js";
+import type { DeletePolicy } from "../projectConfig.js";
 import type { RemoteAgentManager } from "../remoteAgentManager.js";
 import { isConnectionError } from "../vscode/errors.js";
-import { SyncEngine } from "./syncEngine.js";
+import { SyncEngine, type ReconcileOptions } from "./syncEngine.js";
+import type { ReconcileResult } from "./types.js";
 import { watchLocal, watchRemote, type ChangeWatcher, type LocalWatchErrorSource } from "./watchers.js";
 
 export interface SyncDaemonOptions {
@@ -12,6 +14,13 @@ export interface SyncDaemonOptions {
   readonly logger: Logger;
   readonly debounceMilliseconds: number;
   readonly reconciliationIntervalSeconds: number;
+  readonly deletePolicy: DeletePolicy;
+}
+
+interface RequestedReconciliation {
+  readonly options: ReconcileOptions;
+  readonly resolve: (result: ReconcileResult) => void;
+  readonly reject: (error: unknown) => void;
 }
 
 export class SyncDaemon {
@@ -25,6 +34,8 @@ export class SyncDaemon {
   private stopped = false;
   private reconnecting = false;
   private localRestart: Promise<void> | undefined;
+  private started = false;
+  private readonly requestedReconciliations: RequestedReconciliation[] = [];
 
   public constructor(private readonly options: SyncDaemonOptions) {}
 
@@ -38,7 +49,7 @@ export class SyncDaemon {
     this.running = true;
     let initial;
     try {
-      initial = await this.options.engine.reconcile();
+      initial = await this.options.engine.reconcile(this.applyDeletePolicy());
     } finally {
       this.running = false;
     }
@@ -52,12 +63,27 @@ export class SyncDaemon {
       this.scheduleDrain();
     }, this.options.reconciliationIntervalSeconds * 1000);
     this.options.manager.on("disconnect", this.onDisconnect);
-    if (this.fullRequested || this.pendingPaths.size > 0) this.scheduleDrain();
+    this.started = true;
+    if (this.hasQueuedWork()) this.scheduleDrain();
+  }
+
+  public requestReconciliation(options: ReconcileOptions): Promise<ReconcileResult> {
+    if (!this.started || this.stopped) {
+      return Promise.reject(new Error("Live synchronization is not accepting requests"));
+    }
+    return new Promise((resolve, reject) => {
+      this.requestedReconciliations.push({ options, resolve, reject });
+      this.scheduleDrain(true);
+    });
   }
 
   public async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    this.started = false;
+    for (const request of this.requestedReconciliations.splice(0)) {
+      request.reject(new Error("Live synchronization stopped before the request could run"));
+    }
     if (this.periodicTimer) clearInterval(this.periodicTimer);
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.options.manager.off("disconnect", this.onDisconnect);
@@ -80,25 +106,45 @@ export class SyncDaemon {
     this.scheduleDrain();
   }
 
-  private scheduleDrain(): void {
-    if (this.stopped || this.debounceTimer) return;
+  private scheduleDrain(immediate = false): void {
+    if (this.stopped) return;
+    if (immediate && this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = undefined;
+    }
+    if (this.debounceTimer) return;
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = undefined;
       void this.drain();
-    }, this.options.debounceMilliseconds);
+    }, immediate ? 0 : this.options.debounceMilliseconds);
   }
 
   private async drain(): Promise<void> {
     if (this.running || this.stopped) return;
     this.running = true;
     try {
-      while (!this.stopped && (this.fullRequested || this.pendingPaths.size > 0)) {
+      while (!this.stopped && this.hasQueuedWork()) {
+        const requested = this.requestedReconciliations.shift();
+        if (requested) {
+          try {
+            const result = await this.options.engine.reconcile(this.applyDeletePolicy(requested.options));
+            requested.resolve(result);
+          } catch (error) {
+            requested.reject(error);
+            if (isConnectionError(error)) {
+              this.fullRequested = true;
+              void this.reconnect();
+              break;
+            }
+          }
+          continue;
+        }
         const full = this.fullRequested;
         const paths = [...this.pendingPaths];
         this.fullRequested = false;
         this.pendingPaths.clear();
         try {
-          const result = await this.options.engine.reconcile(full ? {} : { paths });
+          const result = await this.options.engine.reconcile(this.applyDeletePolicy(full ? {} : { paths }));
           if (result.conflicts > 0 || result.pendingDeletes > 0) {
             this.options.logger.warn("Synchronization needs attention", {
               conflicts: result.conflicts,
@@ -117,10 +163,19 @@ export class SyncDaemon {
       }
     } finally {
       this.running = false;
-      if (!this.stopped && (this.fullRequested || this.pendingPaths.size > 0) && !this.reconnecting) {
+      if (!this.stopped && this.hasQueuedWork() && !this.reconnecting) {
         this.scheduleDrain();
       }
     }
+  }
+
+  private applyDeletePolicy(options: ReconcileOptions = {}): ReconcileOptions {
+    if (this.options.deletePolicy !== "allow" || options.approveDeletes) return options;
+    return { ...options, approveDeletes: true };
+  }
+
+  private hasQueuedWork(): boolean {
+    return this.fullRequested || this.pendingPaths.size > 0 || this.requestedReconciliations.length > 0;
   }
 
   private readonly onDisconnect = (): void => {

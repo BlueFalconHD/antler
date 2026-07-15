@@ -7,6 +7,7 @@ import {
   findProjectRoot,
   loadProjectConfig,
   parseConnectionUrl,
+  saveProjectConfig,
 } from "../src/projectConfig.js";
 
 const roots: string[] = [];
@@ -47,6 +48,21 @@ describe("Antler project configuration", () => {
     expect(config.local.root).toBe("dist/datapack");
     expect(config.remote).not.toHaveProperty("profile");
     expect(config.sync.concurrency).toBe(32);
+    expect(config.sync.deletePolicy).toBe("confirm");
+  });
+
+  it("accepts an allow policy for automatic deletion propagation", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "antler-config-"));
+    roots.push(root);
+    const config = createProjectConfig({
+      url: new URL("https://code.example.test/deployment/"),
+      remoteRoot: "/home/coder/project/datapack",
+      deletePolicy: "allow",
+    });
+
+    await saveProjectConfig(root, config);
+
+    expect((await loadProjectConfig(root)).sync.deletePolicy).toBe("allow");
   });
 
   it("atomically adopts legacy state and removes the legacy profile", async () => {

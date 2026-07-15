@@ -1,6 +1,7 @@
 import path from "node:path";
 import { Command, Option } from "commander";
 import packageMetadata from "../package.json" with { type: "json" };
+import { setDeletePolicy } from "./commands/config.js";
 import { doctorProject } from "./commands/doctor.js";
 import { initializeProject, type InitOptions } from "./commands/init.js";
 import { resolveConflict } from "./commands/resolve.js";
@@ -9,7 +10,7 @@ import { startProject } from "./commands/start.js";
 import { listCheckpoints, listConflicts, projectStatus, restoreCheckpoint } from "./commands/status.js";
 import { syncProjectOnce } from "./commands/sync.js";
 import { Logger, type LogFormat, type LogLevel } from "./logging.js";
-import { findProjectRoot } from "./projectConfig.js";
+import { findProjectRoot, type DeletePolicy } from "./projectConfig.js";
 
 interface GlobalOptions {
   readonly format: LogFormat;
@@ -71,6 +72,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .option("--omit-origin", "omit the browser-equivalent WebSocket Origin header")
     .option("--allow-version-mismatch", "continue after an explicit Legitimoose version mismatch")
     .option("--no-git", "disable Git safety checkpoints")
+    .addOption(new Option("--delete-policy <policy>", "deletion policy: confirm or allow").choices(["confirm", "allow"]).default("confirm"))
     .allowExcessArguments()
     .addHelpText(
       "after",
@@ -119,6 +121,15 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     .argument("[directory]", "project directory or any child", ".")
     .action(async (directory: string) => {
       await projectStatus(await existingRoot(directory), program.opts<GlobalOptions>().format === "json");
+    });
+
+  program
+    .command("config")
+    .description("Update project synchronization settings")
+    .argument("[directory]", "project directory or any child", ".")
+    .addOption(new Option("--delete-policy <policy>", "deletion policy: confirm or allow").choices(["confirm", "allow"]).makeOptionMandatory())
+    .action(async (directory: string, options: { deletePolicy: DeletePolicy }) => {
+      await setDeletePolicy(await existingRoot(directory), options.deletePolicy, loggerFor(program));
     });
 
   program

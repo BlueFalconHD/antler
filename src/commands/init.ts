@@ -7,6 +7,7 @@ import {
   createProjectConfig,
   parseConnectionUrl,
   saveProjectConfig,
+  type DeletePolicy,
 } from "../projectConfig.js";
 import { assertSafeProjectPaths, configuredSyncRoot, resolveProjectPaths } from "../projectPaths.js";
 import { loadCodeServerPassword, promptText } from "../secrets.js";
@@ -23,6 +24,7 @@ export interface InitOptions {
   readonly allowVersionMismatch?: boolean;
   readonly git?: boolean;
   readonly syncRoot?: string;
+  readonly deletePolicy?: DeletePolicy;
 }
 
 export async function initializeProject(directory: string, options: InitOptions, logger: Logger): Promise<void> {
@@ -73,6 +75,7 @@ export async function initializeProject(directory: string, options: InitOptions,
     allowVersionMismatch: options.allowVersionMismatch ?? false,
     gitEnabled: options.git ?? true,
     syncRoot: configuredSyncRoot(projectRoot, options.syncRoot),
+    deletePolicy: options.deletePolicy ?? "confirm",
   });
   const paths = resolveProjectPaths(projectRoot, config);
   await fs.mkdir(paths.syncRoot, { recursive: true });

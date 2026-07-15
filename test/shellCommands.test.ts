@@ -79,7 +79,7 @@ describe("interactive shell dispatch", () => {
       transferredBytes: 12,
     });
     const runtime = {
-      config: { remote: { root: "/srv/project" } },
+      config: { remote: { root: "/srv/project" }, sync: { deletePolicy: "confirm" } },
       paths: {
         projectRoot: "/tmp/project",
         stateDirectory: "/tmp/project/.antler",

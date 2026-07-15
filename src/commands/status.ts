@@ -19,6 +19,7 @@ export async function projectStatus(projectRoot: string, json: boolean): Promise
     localRoot: paths.syncRoot,
     remoteUrl: config.remote.url,
     remoteRoot: config.remote.root,
+    deletePolicy: config.sync.deletePolicy,
     trackedEntries: Object.keys(state.entries).length,
     conflicts: Object.values(state.conflicts),
     pendingDeletes: Object.values(state.pendingDeletes),
@@ -35,6 +36,7 @@ export async function projectStatus(projectRoot: string, json: boolean): Promise
       ...(paths.projectRoot === paths.syncRoot ? [] : [`Project     ${paths.projectRoot}`]),
       `Local       ${paths.syncRoot}`,
       `Remote      ${config.remote.root}`,
+      `Deletes     ${config.sync.deletePolicy}`,
       `Tracked     ${summary.trackedEntries} entries`,
       `Conflicts   ${summary.conflicts.length}`,
       `Deletions   ${summary.pendingDeletes.length} awaiting approval`,
@@ -45,7 +47,9 @@ export async function projectStatus(projectRoot: string, json: boolean): Promise
         : []),
       ...(summary.conflicts.length > 0 ? ["", "Run `antler conflicts` to inspect unresolved paths."] : []),
       ...(summary.pendingDeletes.length > 0
-        ? ["Run `antler sync --approve-deletes` after reviewing them."]
+        ? [config.sync.deletePolicy === "confirm"
+          ? "Run `antler sync --approve-deletes` after reviewing them."
+          : "Run `antler sync --approve-deletes --force-large-delete` if the circuit breaker paused them."]
         : []),
     ].join("\n") + "\n",
   );

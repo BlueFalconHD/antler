@@ -78,7 +78,7 @@ export async function executeShellCommand(
       return false;
     case "sync": {
       const result = await runtime.engine.reconcile({
-        approveDeletes: command.approveDeletes,
+        approveDeletes: runtime.config.sync.deletePolicy === "allow" || command.approveDeletes,
         forceLargeDelete: command.forceLargeDelete,
       });
       logger.success("Synchronization complete", {
@@ -117,6 +117,7 @@ async function showStatus(runtime: ProjectRuntime, _projectRoot: string, write: 
     ...(runtime.paths.projectRoot === runtime.paths.syncRoot ? [] : [`Project     ${runtime.paths.projectRoot}`]),
     `Local       ${runtime.paths.syncRoot}`,
     `Remote      ${runtime.config.remote.root}`,
+    `Deletes     ${runtime.config.sync.deletePolicy}`,
     `Tracked     ${Object.keys(state.entries).length} entries`,
     `Conflicts   ${conflicts}`,
     `Deletions   ${deletions} awaiting approval`,

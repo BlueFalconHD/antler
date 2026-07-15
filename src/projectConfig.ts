@@ -5,6 +5,7 @@ import { normalizeConfiguredSyncRoot } from "./projectPaths.js";
 import { LEGACY_STATE_DIRECTORY_NAME, STATE_DIRECTORY_NAME, validateRemoteRoot } from "./sync/paths.js";
 
 export const DEFAULT_SYNC_CONCURRENCY = 32;
+export type DeletePolicy = "confirm" | "allow";
 
 export interface ProjectConfig {
   readonly schemaVersion: 3;
@@ -21,7 +22,7 @@ export interface ProjectConfig {
     readonly allowVersionMismatch: boolean;
   };
   readonly sync: {
-    readonly deletePolicy: "confirm";
+    readonly deletePolicy: DeletePolicy;
     readonly ignores: readonly string[];
     readonly reconciliationIntervalSeconds: number;
     readonly debounceMilliseconds: number;
@@ -77,6 +78,7 @@ export function createProjectConfig(input: {
   readonly allowVersionMismatch?: boolean;
   readonly gitEnabled?: boolean;
   readonly syncRoot?: string;
+  readonly deletePolicy?: DeletePolicy;
 }): ProjectConfig {
   return {
     schemaVersion: 3,
@@ -93,7 +95,7 @@ export function createProjectConfig(input: {
       allowVersionMismatch: input.allowVersionMismatch ?? false,
     },
     sync: {
-      deletePolicy: "confirm",
+      deletePolicy: input.deletePolicy ?? "confirm",
       ignores: [],
       reconciliationIntervalSeconds: 30,
       debounceMilliseconds: 180,
@@ -264,7 +266,7 @@ function hasProjectConfigShape(value: unknown): value is Record<string, unknown>
     typeof remote.allowVersionMismatch === "boolean" &&
     (remote.passwordFile === undefined || typeof remote.passwordFile === "string") &&
     isObject(sync) &&
-    sync.deletePolicy === "confirm" &&
+    (sync.deletePolicy === "confirm" || sync.deletePolicy === "allow") &&
     Array.isArray(sync.ignores) &&
     sync.ignores.every((entry) => typeof entry === "string") &&
     typeof sync.reconciliationIntervalSeconds === "number" &&
