@@ -96,12 +96,17 @@ export class GitCheckpoints {
     try {
       await mustGit(this.repositoryRoot, ["read-tree", "--empty"], environment);
       await mustGit(this.repositoryRoot, ["add", "-A", "--", "."], environment);
-      if (this.syncPathspec && this.syncPathspec !== ".") {
-        await mustGit(this.repositoryRoot, ["add", "-f", "-A", "--", this.syncPathspec], environment);
-      }
       const excludedStatePaths = this.statePathspec
         ? [this.statePathspec, legacyStatePath(this.statePathspec)]
         : [];
+      if (this.syncPathspec && this.syncPathspec !== ".") {
+        const excludedPathspecs = excludedStatePaths.map((pathspec) => `:(exclude)${pathspec}`);
+        await mustGit(
+          this.repositoryRoot,
+          ["add", "-f", "-A", "--", this.syncPathspec, ...excludedPathspecs],
+          environment,
+        );
+      }
       await mustGit(
         this.repositoryRoot,
         ["rm", "-r", "--cached", "--ignore-unmatch", "--quiet", ...excludedStatePaths],

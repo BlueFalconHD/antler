@@ -57,9 +57,9 @@ describe("Git safety checkpoints", () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "antler-git-nested-"));
     roots.push(root);
     const syncRoot = path.join(root, "dist");
-    const stateDirectory = path.join(root, ".antler");
+    const stateDirectory = path.join(syncRoot, ".antler");
     await execute("git", ["init", "-q", root]);
-    await Promise.all([fs.mkdir(syncRoot), fs.mkdir(stateDirectory)]);
+    await fs.mkdir(stateDirectory, { recursive: true });
     await fs.writeFile(path.join(root, ".gitignore"), "dist/\n");
     await fs.writeFile(path.join(root, "source.txt"), "source");
     await execute("git", ["-C", root, "add", ".gitignore", "source.txt"]);
@@ -67,7 +67,7 @@ describe("Git safety checkpoints", () => {
     await fs.writeFile(path.join(syncRoot, "generated.txt"), "generated-v1");
     await fs.writeFile(path.join(stateDirectory, "state.json"), "private");
 
-    const checkpoints = new GitCheckpoints(root, syncRoot, stateDirectory, true);
+    const checkpoints = new GitCheckpoints(syncRoot, syncRoot, stateDirectory, true);
     expect((await checkpoints.initialize()).available).toBe(true);
     const reference = await checkpoints.checkpoint("nested-output");
 
