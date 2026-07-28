@@ -34,20 +34,6 @@ need neither Bun nor Node.js.
 `bun run build` also produces portable Node-compatible JavaScript at
 `dist/index.js` for development.
 
-## Releases
-
-Pushing a tag that matches the package version, such as `v0.1.0`, runs the
-GitHub Actions release workflow. It tests Antler, builds Linux x64, Windows x64,
-macOS Apple Silicon, and macOS Intel executables, builds the `beet-antler` Python
-package, publishes the artifacts and `SHA256SUMS` to a GitHub Release, and
-generates release notes. PyPI publishing is enabled through the `PUBLISH_PYPI`
-repository variable after trusted publishing is configured.
-
-```sh
-git tag v0.1.0
-git push origin v0.1.0
-```
-
 ## Connect a project
 
 Create or choose a local directory, run `antler init`, and paste the complete URL
