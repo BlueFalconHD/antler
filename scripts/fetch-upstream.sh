@@ -1,10 +1,10 @@
 #!/bin/sh
 set -eu
 
-CODE_SERVER_TAG=v4.20.1
-CODE_SERVER_COMMIT=e76afa4a2bf4667a3c9f71bf56ef34b8ad365fbe
-VSCODE_COMMIT=8b3775030ed1a69b13e4f4c628c612102e30a681
-DESTINATION=${1:-reference/upstream/code-server-v4.20.1}
+CODE_SERVER_TAG=v4.125.0
+CODE_SERVER_COMMIT=fade53fcaf82e7c535cb972a7e3d8da4e43b63a4
+VSCODE_COMMIT=93cfdd489c3b228840d0f86ec77c3636277c93ea
+DESTINATION=${1:-reference/upstream/code-server-v4.125.0}
 
 if [ ! -d "$DESTINATION/.git" ]; then
   mkdir -p "$(dirname "$DESTINATION")"

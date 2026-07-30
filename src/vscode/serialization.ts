@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 // Adapted from VS Code src/vs/base/parts/ipc/common/ipc.ts at
-// 8b3775030ed1a69b13e4f4c628c612102e30a681.
+// 93cfdd489c3b228840d0f86ec77c3636277c93ea.
 
 const enum DataType {
   Undefined = 0,

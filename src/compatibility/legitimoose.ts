@@ -9,11 +9,11 @@ export interface LegitimooseCompatibility {
 // This is intentionally the only supported target. Updating Legitimoose means
 // updating and revalidating this identity rather than selecting a runtime variant.
 export const LEGITIMOOSE_COMPATIBILITY: LegitimooseCompatibility = {
-  serverVersion: "69.0.0",
-  productCommit: "ebeb3c82ac91ac3e453356093435047ed911a179",
+  serverVersion: "1.131.67",
+  productCommit: "4854a757ba8627b73be1b780c088f00209c32208",
   quality: "stable",
-  vscodeVersion: "1.85.2",
-  vscodeCommit: "8b3775030ed1a69b13e4f4c628c612102e30a681",
+  vscodeVersion: "1.125.0",
+  vscodeCommit: "93cfdd489c3b228840d0f86ec77c3636277c93ea",
 };
 
 export function remoteAgentPath(): string {
