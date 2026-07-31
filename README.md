@@ -34,20 +34,6 @@ need neither Bun nor Node.js.
 `bun run build` also produces portable Node-compatible JavaScript at
 `dist/index.js` for development.
 
-## Releases
-
-Pushing a tag that matches the package version, such as `v0.1.0`, runs the
-GitHub Actions release workflow. It tests Antler, builds Linux x64, Windows x64,
-macOS Apple Silicon, and macOS Intel executables, builds the `beet-antler` Python
-package, publishes the artifacts and `SHA256SUMS` to a GitHub Release, and
-generates release notes. PyPI publishing is enabled through the `PUBLISH_PYPI`
-repository variable after trusted publishing is configured.
-
-```sh
-git tag v0.1.0
-git push origin v0.1.0
-```
-
 ## Connect a project
 
 Create or choose a local directory, run `antler init`, and paste the complete URL
@@ -92,43 +78,6 @@ export ANTLER_CODE_SERVER_URL='https://code.legitimoose.com/<instance>/?folder=/
 export ANTLER_CODE_SERVER_PASSWORD='<password>'
 antler init . --sync-root dist
 ```
-
-## Beet integration
-
-The first-party `beet-antler` plugin downloads the appropriate Antler release
-binary into Beet's cache, verifies it against the release `SHA256SUMS`, and runs
-Antler after Beet has finished writing its output.
-
-```sh
-uv add --dev beet-antler
-```
-
-```json
-{
-  "output": "dist",
-  "pipeline": ["beet_antler"],
-  "meta": {
-    "antler": {
-      "version": "latest",
-      "sync": "auto",
-      "approve_deletes": false
-    }
-  }
-}
-```
-
-Set `ANTLER_CODE_SERVER_URL` and `ANTLER_CODE_SERVER_PASSWORD` as shown above.
-On the first successful build the plugin initializes `.antler/` in the Beet
-project root with `dist/` as its sync root. Later builds run a one-shot
-`antler sync` after output. With `sync: "auto"`, missing credentials skip setup
-and synchronization while still caching Antler; `sync: true` makes credentials
-and synchronization mandatory, and `sync: false` only caches the executable.
-
-Pin `version` to a release such as `0.1.4` for reproducible builds. The plugin
-checks `latest` at most once every 24 hours and can reuse a previously verified
-binary while offline. It never forces Antler's large-delete circuit breaker.
-Avoid running `antler start` for the same project while Beet is building; Antler
-will reject the concurrent operation rather than risk state corruption.
 
 ## Live synchronization
 
@@ -189,33 +138,3 @@ To propagate one-sided deletions automatically, set the delete policy to `allow`
 ```sh
 antler config --delete-policy allow
 ```
-
-Restart a running `antler start` process after changing the policy. New projects
-can opt in during setup with `antler init --delete-policy allow`. The delete-count
-and percentage circuit breaker still applies; override it for a reviewed batch
-with `antler sync --approve-deletes --force-large-delete`.
-
-## Git integration and recovery
-
-Before overwriting or deleting a local file, the daemon snapshots the whole
-working tree through a temporary Git index and writes a hidden reference under
-`refs/antler/checkpoints/`. It does not modify HEAD, the current branch,
-the real index, staged changes, or the working tree.
-
-```sh
-git for-each-ref --sort=-creatordate refs/antler/checkpoints/
-git show <checkpoint-ref>:path/to/file
-git restore --source <checkpoint-ref> -- path/to/file
-```
-
-The CLI wraps the last operation safely and creates another checkpoint first:
-
-```sh
-antler restore <checkpoint-ref> path/to/file
-```
-
-Checkpoints are available when the sync root is the Git repository root or a
-directory beneath it. Ignored nested roots such as Beet's `dist/` are force-added
-only to Antler's temporary checkpoint index; the real index and ignore rules are
-unchanged. If the sync root is outside the repository, the base/conflict object
-store remains available but Git checkpoints are disabled.
