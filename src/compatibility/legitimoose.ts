@@ -9,8 +9,8 @@ export interface LegitimooseCompatibility {
 // This is intentionally the only supported target. Updating Legitimoose means
 // updating and revalidating this identity rather than selecting a runtime variant.
 export const LEGITIMOOSE_COMPATIBILITY: LegitimooseCompatibility = {
-  serverVersion: "1.131.67",
-  productCommit: "4854a757ba8627b73be1b780c088f00209c32208",
+  serverVersion: "1.131.68",
+  productCommit: "761351d742548739627db207af20f039d6b4f786",
   quality: "stable",
   vscodeVersion: "1.125.0",
   vscodeCommit: "93cfdd489c3b228840d0f86ec77c3636277c93ea",
