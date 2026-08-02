@@ -1,6 +1,6 @@
 {
     "name": "legitimoose-antler",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "description": "Local-first datapack synchronization for Legitimoose",
     "license": "MIT",
     "type": "module",
